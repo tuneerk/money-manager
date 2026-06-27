@@ -96,7 +96,6 @@ const state = {
   voiceAlternates:  [],
   voiceMode:        'idle',
   pendingMultiTxns: [],
-  claudeEnabled:    false,
   readbackEnabled:  true,
 
   scanData:         null,
@@ -112,9 +111,6 @@ async function init() {
 
   const cur = await db.settings.get('currency');
   if (cur) state.currency = cur.value;
-
-  const claudeOn = await db.settings.get('claudeEnabled');
-  state.claudeEnabled = claudeOn?.value || false;
 
   const readback = await db.settings.get('readbackEnabled');
   state.readbackEnabled = readback?.value ?? true;
@@ -184,7 +180,6 @@ function setupGlobalListeners() {
   document.getElementById('settings-month-start').addEventListener('change', async e => {
     await db.settings.put({ key: 'monthStart', value: parseInt(e.target.value) });
   });
-  document.getElementById('toggle-claude').addEventListener('click', () => toggleSetting('claudeEnabled', 'toggle-claude'));
   document.getElementById('toggle-readback').addEventListener('click', () => toggleSetting('readbackEnabled', 'toggle-readback'));
   document.getElementById('claude-api-key').addEventListener('change', async e => {
     await db.settings.put({ key: 'claudeApiKey', value: e.target.value.trim() });
@@ -826,7 +821,6 @@ async function refreshSettings() {
   document.getElementById('settings-month-start').value = settings.monthStart || 1;
   document.getElementById('claude-api-key').value       = settings.claudeApiKey || '';
   document.getElementById('voice-lang').value           = settings.voiceLang  || 'en-IN';
-  setToggleVisual('toggle-claude',   settings.claudeEnabled  || false);
   setToggleVisual('toggle-readback', settings.readbackEnabled ?? true);
 }
 
@@ -839,7 +833,6 @@ async function toggleSetting(key, btnId) {
   const next = !(cur?.value || false);
   await db.settings.put({ key, value: next });
   setToggleVisual(btnId, next);
-  if (key === 'claudeEnabled')  state.claudeEnabled  = next;
   if (key === 'readbackEnabled') state.readbackEnabled = next;
 }
 
@@ -954,14 +947,14 @@ async function processVoiceText(text, confidence = 1.0) {
   if (isCancellation(text)) { document.getElementById('voice-status').textContent = 'Cancelled. Tap mic to try again.'; return; }
   document.getElementById('voice-status').textContent = 'Processing…';
   state.voiceMode = 'processing';
-  const parsed  = parseVoiceInput(text);
-  const catInfo = await matchCategory(parsed.merchant || text);
-  parsed.categoryName    = catInfo?.[0] || null;
-  parsed.subcategoryName = catInfo?.[1] || null;
-  const needsClaude = state.claudeEnabled && (!parsed.amount || hasMultipleAmounts(text) || confidence < 0.85);
-  if (needsClaude) {
+
+  const keyRow = await db.settings.get('claudeApiKey');
+  const hasKey = !!keyRow?.value;
+
+  if (hasKey) {
     document.getElementById('voice-status').textContent = '🤔 Thinking…';
-    const aiResult = await callClaudeVoice(text, hasMultipleAmounts(text) ? 'multi' : 'standard', confidence);
+    const scenario = hasMultipleAmounts(text) ? 'multi' : 'standard';
+    const aiResult = await callClaudeVoice(text, scenario, confidence);
     if (aiResult) {
       if (aiResult.transactions?.length > 1) {
         state.pendingMultiTxns = aiResult.transactions;
@@ -969,9 +962,20 @@ async function processVoiceText(text, confidence = 1.0) {
         if (aiResult.confirmText) speakConfirmation(aiResult.confirmText);
         return;
       }
-      Object.assign(parsed, aiResult);
+      state.voiceParsed = aiResult;
+      state.voiceMode   = 'parsed';
+      document.getElementById('voice-status').textContent = aiResult.amount ? 'Tap Save to continue' : '⚠️ Couldn\'t find an amount. Please verify.';
+      updateParsedUI(aiResult);
+      speakConfirmation(buildConfirmText(aiResult));
+      return;
     }
   }
+
+  // Fallback: local NLP (no key set, or Claude call failed)
+  const parsed  = parseVoiceInput(text);
+  const catInfo = await matchCategory(parsed.merchant || text);
+  parsed.categoryName    = catInfo?.[0] || null;
+  parsed.subcategoryName = catInfo?.[1] || null;
   state.voiceParsed = parsed;
   state.voiceMode   = 'parsed';
   document.getElementById('voice-status').textContent = parsed.amount ? 'Tap Save to continue' : '⚠️ Couldn\'t find an amount. Please verify.';
@@ -1200,8 +1204,44 @@ async function runOCR(imageB64) {
   document.getElementById('scan-status').textContent    = 'Edit fields if needed, then tap Use';
 }
 
-async function extractReceiptData() {
-  return { amount:null, merchant:'', date:new Date().toISOString().split('T')[0], categoryName:null, subcategoryName:null };
+async function extractReceiptData(imageB64) {
+  const keyRow = await db.settings.get('claudeApiKey');
+  const apiKey = keyRow?.value;
+  if (!apiKey) return { amount:null, merchant:'', date:new Date().toISOString().split('T')[0] };
+
+  const today      = new Date().toISOString().split('T')[0];
+  const mediaType  = imageB64.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
+  const b64data    = imageB64.split(',')[1];
+  const controller = new AbortController();
+  const timeout    = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        system: `You extract data from receipts/bills. Return ONLY valid JSON with keys: amount (number, the total paid), merchant (string, store/restaurant name), date ("YYYY-MM-DD", today is ${today} if not visible), categoryName (string matching one of: Food & Dining, Transport, Health, Shopping, Bills & Utilities, Entertainment, Other, or null). No explanation, just JSON.`,
+        messages: [{
+          role: 'user',
+          content: [
+            { type:'image', source:{ type:'base64', media_type:mediaType, data:b64data } },
+            { type:'text', text:'Extract the total amount paid, merchant name, date, and category from this receipt.' }
+          ]
+        }]
+      })
+    });
+    clearTimeout(timeout);
+    const data = await res.json();
+    const text = data.content?.find(b => b.type === 'text')?.text || '{}';
+    return JSON.parse(text.replace(/```json|```/g, '').trim());
+  } catch (err) {
+    clearTimeout(timeout);
+    console.warn('[Claude] Receipt scan failed:', err.message);
+    return { amount:null, merchant:'', date:new Date().toISOString().split('T')[0] };
+  }
 }
 
 async function useScanData() {
