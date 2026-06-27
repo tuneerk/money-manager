@@ -9,23 +9,33 @@ A zero-build, offline-first PWA for tracking personal expenses. All data stays o
 <table>
   <tr>
     <td align="center"><b>Home</b></td>
-    <td align="center"><b>Transactions</b></td>
-    <td align="center"><b>Stats — Expenses</b></td>
+    <td align="center"><b>Transactions — Daily</b></td>
+    <td align="center"><b>Calendar View</b></td>
   </tr>
   <tr>
     <td><img src="screenshots/home.png" width="220"/></td>
     <td><img src="screenshots/transactions.png" width="220"/></td>
+    <td><img src="screenshots/transactions-calendar.png" width="220"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Monthly Year View</b></td>
+    <td align="center"><b>Total View</b></td>
+    <td align="center"><b>Stats — Expenses</b></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/transactions-monthly-year.png" width="220"/></td>
+    <td><img src="screenshots/transactions-total.png" width="220"/></td>
     <td><img src="screenshots/stats.png" width="220"/></td>
   </tr>
   <tr>
     <td align="center"><b>Stats — Income</b></td>
-    <td align="center"><b>Monthly View</b></td>
     <td align="center"><b>Accounts</b></td>
+    <td align="center"><b>Accounts — Credit Card</b></td>
   </tr>
   <tr>
     <td><img src="screenshots/stats-income.png" width="220"/></td>
-    <td><img src="screenshots/transactions-monthly.png" width="220"/></td>
     <td><img src="screenshots/accounts.png" width="220"/></td>
+    <td><img src="screenshots/accounts-cc.png" width="220"/></td>
   </tr>
   <tr>
     <td align="center"><b>Add Expense</b></td>
@@ -58,25 +68,30 @@ A zero-build, offline-first PWA for tracking personal expenses. All data stays o
 ### Transaction List
 - Day-grouped view with day number badges (red = Sunday, blue = Saturday)
 - Per-day income and expense totals shown in each group header
-- Three view modes: **Daily**, **Monthly** (with summary cards), **Total** (balance summary)
-- Month navigation — browse any past or future month with `‹ Jun 2026 ›`
+- **Four view modes:**
+  - **Daily** — transactions grouped by day with badges and totals
+  - **Calendar** — monthly grid (Mon–Sun) showing daily income/expense amounts per cell; today highlighted; Sat/Sun colour-coded
+  - **Monthly** — year-level view listing all months with income and balance; active month expands to show Mon–Sun weekly breakdowns; current week highlighted
+  - **Total** — period summary with vs-last-month comparison, cash vs card expense breakdown, transfer total, budget shortcut, and export
+- Month/year navigation with `‹ ›` arrows (Monthly tab navigates by year)
 
 ### Stats
 - **Expenses / Income** tab toggle
 - SVG donut pie chart — top category shown in the centre with its percentage
 - Category rows with coloured progress bars and % badges matching the pie slices
 - **Monthly budgets** — set a spend limit per category; bar turns red when over budget
-- Period selector: This Month, Last Month, This Year, All Time
+- Period selector: **This Week**, This Month, Last Month, This Year, All Time
 
 ### Accounts
 - Grouped by Cash, Banks & Savings, Credit Cards, Investments
 - Net worth total at the top
 - Transfers between accounts with balance update on both sides
+- **Credit card limit** — set a credit limit to see outstanding balance, available credit, and a colour-coded utilisation bar (green → amber → red)
 
 ### AI Assistant (Voice & Scan)
-- Supports **Claude (Anthropic)** and **Gemini (Google)** — set one or both API keys
-- Preferred AI is tried first; the other is automatic fallback
-- Falls back to built-in keyword NLP if no API key is configured
+- Supports **Claude (Anthropic)** and **Gemini (Google)** — set your API key and choose a model from the dropdown
+- Toggle AI on/off; when AI is on but no key is set, a warning prompt appears instead of silently falling back
+- Built-in keyword NLP is used only when the AI toggle is turned off
 - 50+ Indian merchant keywords built-in (Swiggy, Zomato, Uber, Amazon, Airtel, etc.)
 
 ### Other
@@ -134,11 +149,12 @@ Go to **Settings → AI Assistant** and paste your API key(s).
 | Claude (Anthropic) | [console.anthropic.com](https://console.anthropic.com) | `sk-ant-api03-…` |
 | Gemini (Google) | [aistudio.google.com](https://aistudio.google.com) | `AIzaSy…` |
 
-- Set **Preferred AI** to whichever you want used first
-- If both keys are set, the preferred provider is tried; the other is fallback
-- If no key is set, voice and scan still work using built-in keyword matching
+- Choose a model from the **Model** dropdown — the provider is inferred automatically (`claude-*` → Anthropic, `gemini-*` → Google)
+- Toggle **Use AI** off to use built-in keyword NLP without an API key
+- If AI is toggled on but no key is entered, the app shows a warning instead of silently falling back
 
-Models used: `claude-haiku-4-5` (Anthropic) · `gemini-2.5-flash` (Google)
+Default model: `gemini-2.5-flash`  
+Available models: `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, `claude-haiku-4-5`, `claude-sonnet-4-6`
 
 ---
 
