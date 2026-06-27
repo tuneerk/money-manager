@@ -119,7 +119,7 @@ async function init() {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
-  await refreshHome();
+  await refreshTxnList();
   setupGlobalListeners();
 }
 
@@ -221,7 +221,6 @@ function navNextMonth() {
 
 function refreshCurrentScreen() {
   const active = document.querySelector('.screen.active')?.id;
-  if (active === 'home')             refreshHome();
   if (active === 'transactions')     refreshTxnList();
   if (active === 'reports')          refreshReports();
 }
@@ -240,10 +239,8 @@ function monthLabel() {
 
 function updateMonthLabels() {
   const lbl = monthLabel();
-  ['home-month-label','stats-month-label'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = lbl;
-  });
+  const statsEl = document.getElementById('stats-month-label');
+  if (statsEl) statsEl.textContent = lbl;
   const txnEl = document.getElementById('txn-month-label');
   if (txnEl) txnEl.textContent = state.txnViewTab === 'monthly' ? String(state.navYear) : lbl;
 }
@@ -256,7 +253,6 @@ function switchTab(btn) {
   document.getElementById(target).classList.add('active');
   btn.classList.add('active');
 
-  if (target === 'home')             refreshHome();
   if (target === 'transactions')     refreshTxnList();
   if (target === 'reports')          refreshReports();
   if (target === 'accounts-screen')  refreshAccounts();
@@ -283,32 +279,6 @@ function openOverlay(id) {
 function closeOverlay(id) {
   document.getElementById(id).classList.remove('active');
   if (state.listening) stopListening();
-}
-
-// ─── Home ──────────────────────────────────────────────────────────────────
-async function refreshHome() {
-  updateMonthLabels();
-  const { start, end } = getNavPeriod();
-  const all = await db.transactions.where('date').between(start, end, true, true).toArray();
-
-  const income  = all.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-  const expense = all.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-  const balance = income - expense;
-
-  const balEl = document.getElementById('home-balance');
-  balEl.textContent = state.currency + fmt(Math.abs(balance));
-  balEl.className   = 'amount ' + (balance >= 0 ? 'positive' : 'negative');
-
-  document.getElementById('home-income').textContent  = state.currency + fmt(income);
-  document.getElementById('home-expense').textContent = state.currency + fmt(expense);
-
-  const recent = [...all].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt)).slice(0, 25);
-  const list = document.getElementById('home-txn-list');
-  if (recent.length === 0) {
-    list.innerHTML = '<p class="empty-state">No transactions this month.<br>Tap + to add one.</p>';
-    return;
-  }
-  list.innerHTML = renderDayGroups(recent);
 }
 
 // ─── Day-Grouped Transaction Render ─────────────────────────────────────────
@@ -780,7 +750,7 @@ async function saveTransaction() {
   }
 
   closeOverlay('add-sheet');
-  await refreshHome();
+  await refreshTxnList();
   showToast(`${state.currentType === 'income' ? 'Income' : 'Expense'} saved`, true);
 }
 
@@ -797,7 +767,6 @@ async function deleteTxnPrompt(id) {
     }
   }
   const activeScreen = document.querySelector('.screen.active')?.id;
-  if (activeScreen === 'home')         await refreshHome();
   if (activeScreen === 'transactions') await refreshTxnList();
   if (activeScreen === 'reports')      await refreshReports();
   showToast('Transaction deleted');
@@ -1180,7 +1149,7 @@ async function exportData() {
 async function clearData() {
   if (!confirm('Clear ALL data? This cannot be undone.')) return;
   await Promise.all([db.transactions.clear(), db.merchantMap.clear(), db.budgets.clear()]);
-  await refreshHome();
+  await refreshTxnList();
   showToast('Data cleared');
 }
 
@@ -1604,7 +1573,7 @@ async function bulkSaveTxns(txns) {
     await db.transactions.add({ type:t.type||'expense', amount:t.amount, categoryId:null, subcategoryId:null, categoryName:t.categoryName||'', subcategoryName:t.subcategoryName||'', accountId:null, date:t.date||new Date().toISOString().split('T')[0], note:t.note||'', merchant:t.merchant||'', receiptImage:null, createdAt:Date.now() });
   }
   closeOverlay('multi-txn-sheet');
-  await refreshHome();
+  await refreshTxnList();
   showToast(`${txns.length} transactions saved`);
 }
 
@@ -1777,7 +1746,7 @@ async function undoLastTxn() {
   }
   state.lastTxnId = null;
   document.getElementById('toast').classList.remove('show');
-  await refreshHome();
+  await refreshTxnList();
   showToast('Transaction undone');
 }
 

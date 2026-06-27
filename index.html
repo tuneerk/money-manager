@@ -72,22 +72,6 @@
     .month-nav-btn:active { background: var(--surface2); }
     .month-nav-label { font-size: 17px; font-weight: 600; color: var(--text); min-width: 130px; text-align: center; }
 
-    /* ── Home Screen ── */
-    .home-top { padding: 14px 20px 0; }
-    .home-top h1 { font-size: 20px; font-weight: 700; }
-    .home-summary-row { display: flex; align-items: flex-end; gap: 16px; padding: 10px 20px 4px; }
-    .home-balance-big { flex: 1; }
-    .home-balance-big .label { font-size: 12px; color: var(--text-2); margin-bottom: 2px; }
-    .home-balance-big .amount { font-size: 34px; font-weight: 700; }
-    .home-balance-big .amount.positive { color: var(--income); }
-    .home-balance-big .amount.negative { color: var(--expense); }
-    .home-mini-cards { display: flex; gap: 10px; padding: 0 20px 12px; }
-    .home-mini-card { flex: 1; background: var(--surface); border-radius: 12px; padding: 10px 12px; }
-    .home-mini-card .m-label { font-size: 11px; color: var(--text-2); margin-bottom: 3px; }
-    .home-mini-card .m-amount { font-size: 16px; font-weight: 700; }
-    .m-amount.income  { color: var(--income); }
-    .m-amount.expense { color: var(--expense); }
-
     /* ── Section Header ── */
     .section-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px 6px; }
     .section-title { font-size: 13px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; }
@@ -305,40 +289,8 @@
 <div id="app">
   <div id="screens">
 
-    <!-- Home -->
-    <div id="home" class="screen active">
-      <div class="home-top">
-        <h1>Money Manager</h1>
-      </div>
-      <div class="month-nav">
-        <button class="month-nav-btn" onclick="navPrevMonth()">‹</button>
-        <span class="month-nav-label" id="home-month-label">Jun 2026</span>
-        <button class="month-nav-btn" onclick="navNextMonth()">›</button>
-      </div>
-      <div class="home-summary-row">
-        <div class="home-balance-big">
-          <div class="label">Balance</div>
-          <div class="amount" id="home-balance">₹0</div>
-        </div>
-      </div>
-      <div class="home-mini-cards">
-        <div class="home-mini-card">
-          <div class="m-label">Income</div>
-          <div class="m-amount income" id="home-income">₹0</div>
-        </div>
-        <div class="home-mini-card">
-          <div class="m-label">Expense</div>
-          <div class="m-amount expense" id="home-expense">₹0</div>
-        </div>
-      </div>
-      <div class="section-header">
-        <span class="section-title">Recent</span>
-      </div>
-      <div id="home-txn-list"></div>
-    </div>
-
     <!-- Transactions -->
-    <div id="transactions" class="screen">
+    <div id="transactions" class="screen active">
       <div style="padding:14px 20px 4px"><h2 style="font-size:20px;font-weight:700">Transactions</h2></div>
       <div class="month-nav">
         <button class="month-nav-btn" onclick="navPrevMonth()">‹</button>
@@ -483,11 +435,7 @@
 
   <!-- Bottom Nav -->
   <nav id="bottom-nav">
-    <button class="nav-btn active" data-tab="home">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
-      Home
-    </button>
-    <button class="nav-btn" data-tab="transactions">
+    <button class="nav-btn active" data-tab="transactions">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
       Records
     </button>
