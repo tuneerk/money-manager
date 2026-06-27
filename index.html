@@ -122,8 +122,22 @@
 
     /* ── Transactions Screen Tabs ── */
     .view-tabs { display: flex; border-bottom: 1px solid var(--border); margin: 0 16px; gap: 0; }
-    .view-tab { flex: 1; padding: 10px 6px; font-size: 13px; font-weight: 500; color: var(--text-2); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .view-tab { flex: 1; padding: 10px 4px; font-size: 12px; font-weight: 500; color: var(--text-2); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
     .view-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Calendar View ── */
+    .cal-grid { padding: 2px 8px 8px; }
+    .cal-header-row { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 3px; }
+    .cal-hcell { text-align: center; font-size: 10px; font-weight: 600; color: var(--text-3); padding: 4px 0; letter-spacing: .3px; }
+    .cal-row   { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; margin-bottom: 2px; }
+    .cal-cell  { min-height: 58px; padding: 4px 2px 2px; display: flex; flex-direction: column; align-items: center; border-radius: 6px; background: var(--surface); }
+    .cal-empty { min-height: 58px; }
+    .cal-today { outline: 1.5px solid rgba(255,255,255,.75); }
+    .cal-dnum  { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 1px; }
+    .cal-sat   { color: var(--income) !important; }
+    .cal-sun   { color: var(--expense) !important; }
+    .cal-inc   { font-size: 8px; color: var(--income);  font-weight: 700; line-height: 1.4; text-align: center; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cal-exp   { font-size: 8px; color: var(--expense); font-weight: 700; line-height: 1.4; text-align: center; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* ── Stats / Reports ── */
     .stats-top { padding: 14px 20px 0; }
@@ -332,9 +346,10 @@
         <button class="month-nav-btn" onclick="navNextMonth()">›</button>
       </div>
       <div class="view-tabs">
-        <button class="view-tab active" data-vtab="daily"   onclick="setTxnView('daily',this)">Daily</button>
-        <button class="view-tab"        data-vtab="monthly" onclick="setTxnView('monthly',this)">Monthly</button>
-        <button class="view-tab"        data-vtab="total"   onclick="setTxnView('total',this)">Total</button>
+        <button class="view-tab active" data-vtab="daily"    onclick="setTxnView('daily',this)">Daily</button>
+        <button class="view-tab"        data-vtab="calendar" onclick="setTxnView('calendar',this)">Calendar</button>
+        <button class="view-tab"        data-vtab="monthly"  onclick="setTxnView('monthly',this)">Monthly</button>
+        <button class="view-tab"        data-vtab="total"    onclick="setTxnView('total',this)">Total</button>
       </div>
       <div id="all-txn-list"></div>
     </div>
@@ -357,7 +372,8 @@
           <div class="stats-total-amount" id="reports-total">₹0</div>
         </div>
         <select id="report-period" class="period-select-dark">
-          <option value="month">This Month</option>
+          <option value="week">This Week</option>
+          <option value="month" selected>This Month</option>
           <option value="last">Last Month</option>
           <option value="year">This Year</option>
           <option value="all">All Time</option>

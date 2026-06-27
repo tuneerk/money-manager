@@ -198,12 +198,22 @@ function setupGlobalListeners() {
 
 // ─── Month Navigation ───────────────────────────────────────────────────────
 function navPrevMonth() {
+  if (state.txnViewTab === 'monthly' && document.querySelector('.screen.active')?.id === 'transactions') {
+    state.navYear--;
+    refreshCurrentScreen();
+    return;
+  }
   if (state.navMonth === 0) { state.navMonth = 11; state.navYear--; }
   else                       { state.navMonth--; }
   refreshCurrentScreen();
 }
 
 function navNextMonth() {
+  if (state.txnViewTab === 'monthly' && document.querySelector('.screen.active')?.id === 'transactions') {
+    state.navYear++;
+    refreshCurrentScreen();
+    return;
+  }
   if (state.navMonth === 11) { state.navMonth = 0; state.navYear++; }
   else                        { state.navMonth++; }
   refreshCurrentScreen();
@@ -230,10 +240,12 @@ function monthLabel() {
 
 function updateMonthLabels() {
   const lbl = monthLabel();
-  ['home-month-label','txn-month-label','stats-month-label'].forEach(id => {
+  ['home-month-label','stats-month-label'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = lbl;
   });
+  const txnEl = document.getElementById('txn-month-label');
+  if (txnEl) txnEl.textContent = state.txnViewTab === 'monthly' ? String(state.navYear) : lbl;
 }
 
 // ─── Navigation ────────────────────────────────────────────────────────────
@@ -364,59 +376,305 @@ function setTxnView(tab, el) {
 
 async function refreshTxnList() {
   updateMonthLabels();
+  const list = document.getElementById('all-txn-list');
+
+  if (state.txnViewTab === 'calendar') {
+    await renderCalendarView(list);
+    return;
+  }
+
+  if (state.txnViewTab === 'monthly') {
+    await renderMonthlyYearView(list);
+    return;
+  }
+
   const { start, end } = getNavPeriod();
   const all = await db.transactions.where('date').between(start, end, true, true).toArray();
   all.sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt));
 
-  const list = document.getElementById('all-txn-list');
+  if (state.txnViewTab === 'total') {
+    await renderTotalView(list, all);
+    return;
+  }
+
   if (all.length === 0) {
     list.innerHTML = '<p class="empty-state">No transactions this month.</p>';
     return;
   }
 
-  if (state.txnViewTab === 'monthly') {
-    const income  = all.filter(t => t.type === 'income').reduce((s, t)  => s + t.amount, 0);
-    const expense = all.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-    list.innerHTML = `
-      <div style="padding:16px 20px;display:flex;gap:16px">
-        <div style="flex:1;background:var(--surface);border-radius:12px;padding:12px 16px">
-          <div style="font-size:11px;color:var(--text-2)">INCOME</div>
-          <div style="font-size:22px;font-weight:700;color:var(--income)">${state.currency}${fmt(income)}</div>
+  list.innerHTML = renderDayGroups(all);
+}
+
+// ─── Calendar View ────────────────────────────────────────────────────────────
+async function renderCalendarView(container) {
+  const { start, end } = getNavPeriod();
+  const txns = await db.transactions.where('date').between(start, end, true, true).toArray();
+
+  const dayMap = {};
+  let totalInc = 0, totalExp = 0;
+  for (const t of txns) {
+    if (!dayMap[t.date]) dayMap[t.date] = { income: 0, expense: 0 };
+    if (t.type === 'income')  { dayMap[t.date].income  += t.amount; totalInc += t.amount; }
+    if (t.type === 'expense') { dayMap[t.date].expense += t.amount; totalExp += t.amount; }
+  }
+
+  const y = state.navYear, m = state.navMonth;
+  const firstDay  = new Date(y, m, 1);
+  const lastDate  = new Date(y, m + 1, 0).getDate();
+  const todayStr  = new Date().toISOString().split('T')[0];
+  const balance   = totalInc - totalExp;
+
+  let startOffset = firstDay.getDay();
+  startOffset = startOffset === 0 ? 6 : startOffset - 1; // shift to Mon=0
+
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= lastDate; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  let html = `
+    <div style="display:flex;padding:10px 16px 8px">
+      <div style="flex:1;text-align:center">
+        <div style="font-size:11px;color:var(--text-2)">Income</div>
+        <div style="font-size:15px;font-weight:700;color:var(--income)">${state.currency}${fmt(totalInc)}</div>
+      </div>
+      <div style="flex:1;text-align:center">
+        <div style="font-size:11px;color:var(--text-2)">Expenses</div>
+        <div style="font-size:15px;font-weight:700;color:var(--expense)">${state.currency}${fmt(totalExp)}</div>
+      </div>
+      <div style="flex:1;text-align:center">
+        <div style="font-size:11px;color:var(--text-2)">Total</div>
+        <div style="font-size:15px;font-weight:700;color:${balance>=0?'var(--income)':'var(--expense)'}">${state.currency}${fmt(Math.abs(balance))}</div>
+      </div>
+    </div>
+    <div class="cal-grid">
+      <div class="cal-header-row">
+        <div class="cal-hcell">Mon</div><div class="cal-hcell">Tue</div><div class="cal-hcell">Wed</div>
+        <div class="cal-hcell">Thu</div><div class="cal-hcell">Fri</div>
+        <div class="cal-hcell cal-sat">Sat</div>
+        <div class="cal-hcell cal-sun">Sun</div>
+      </div>`;
+
+  for (let i = 0; i < cells.length; i += 7) {
+    html += '<div class="cal-row">';
+    for (let j = i; j < i + 7; j++) {
+      const day = cells[j];
+      if (!day) { html += '<div class="cal-empty"></div>'; continue; }
+      const col     = j % 7; // 5=Sat 6=Sun in Mon-first
+      const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      const data    = dayMap[dateStr] || { income: 0, expense: 0 };
+      const isToday = dateStr === todayStr;
+      html += `
+        <div class="cal-cell${isToday ? ' cal-today' : ''}">
+          <span class="cal-dnum${col===5?' cal-sat':col===6?' cal-sun':''}">${day}</span>
+          ${data.income  > 0 ? `<span class="cal-inc">${fmtShort(data.income)}</span>`  : ''}
+          ${data.expense > 0 ? `<span class="cal-exp">${fmtShort(data.expense)}</span>` : ''}
+        </div>`;
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function fmtShort(n) {
+  if (n >= 100000) return (n / 100000).toFixed(1) + 'L';
+  if (n >= 1000)   return (n / 1000).toFixed(1) + 'k';
+  return String(Math.round(n));
+}
+
+// ─── Monthly Year View ────────────────────────────────────────────────────────
+async function renderMonthlyYearView(container) {
+  const year  = state.navYear;
+  const txns  = await db.transactions.where('date').between(`${year}-01-01`, `${year}-12-31`, true, true).toArray();
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  const monthData = Array.from({ length: 12 }, () => ({ income: 0, expense: 0, txns: [] }));
+  for (const t of txns) {
+    const mi = parseInt(t.date.split('-')[1]) - 1;
+    monthData[mi].txns.push(t);
+    if (t.type === 'income')  monthData[mi].income  += t.amount;
+    if (t.type === 'expense') monthData[mi].expense += t.amount;
+  }
+
+  const yearInc = monthData.reduce((s, d) => s + d.income, 0);
+  const yearExp = monthData.reduce((s, d) => s + d.expense, 0);
+  const maxM    = year === today.getFullYear() ? today.getMonth() : 11;
+
+  let html = `
+    <div style="display:flex;padding:10px 16px 8px;border-bottom:1px solid var(--border)">
+      <div style="flex:1;text-align:center">
+        <div style="font-size:11px;color:var(--text-2)">Income</div>
+        <div style="font-size:15px;font-weight:700;color:var(--income)">${state.currency}${fmt(yearInc)}</div>
+      </div>
+      <div style="flex:1;text-align:center">
+        <div style="font-size:11px;color:var(--text-2)">Expenses</div>
+        <div style="font-size:15px;font-weight:700;color:var(--expense)">${state.currency}${fmt(yearExp)}</div>
+      </div>
+      <div style="flex:1;text-align:center">
+        <div style="font-size:11px;color:var(--text-2)">Total</div>
+        <div style="font-size:15px;font-weight:700;color:${yearInc-yearExp>=0?'var(--income)':'var(--expense)'}">${state.currency}${fmt(Math.abs(yearInc-yearExp))}</div>
+      </div>
+    </div>`;
+
+  for (let mi = maxM; mi >= 0; mi--) {
+    const data    = monthData[mi];
+    const bal     = data.income - data.expense;
+    const isActive = mi === state.navMonth && year === today.getFullYear();
+    const mPad    = String(mi + 1).padStart(2, '0');
+    const lastDay = new Date(year, mi + 1, 0).getDate();
+
+    html += `
+      <div style="border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;padding:12px 16px;cursor:pointer" onclick="jumpToMonth(${mi},${year})">
+          <div style="min-width:110px">
+            <div style="font-size:15px;font-weight:600">${MONTH_NAMES[mi]}</div>
+            <div style="font-size:11px;color:var(--text-3)">${mPad}.1 ~ ${mPad}.${lastDay}</div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="text-align:right">
+            <div style="font-size:14px;font-weight:600;color:var(--income)">${state.currency}${fmt(data.income)}</div>
+            <div style="font-size:12px;color:${bal>=0?'var(--income)':'var(--expense)'}">${state.currency}${fmt(Math.abs(bal))}</div>
+          </div>
+        </div>`;
+
+    if (isActive) {
+      const weeks = getMonthWeeks(year, mi);
+      for (let wi = weeks.length - 1; wi >= 0; wi--) {
+        const { start: wS, end: wE } = weeks[wi];
+        const wSStr = wS.toISOString().split('T')[0];
+        const wEStr = wE.toISOString().split('T')[0];
+        const wTxns = data.txns.filter(t => t.date >= wSStr && t.date <= wEStr);
+        const wInc  = wTxns.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+        const wExp  = wTxns.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+        const wBal  = wInc - wExp;
+        const isCurWeek = todayStr >= wSStr && todayStr <= wEStr;
+        const sL = `${String(wS.getDate()).padStart(2,'0')}.${String(wS.getMonth()+1).padStart(2,'0')}`;
+        const eL = `${String(wE.getDate()).padStart(2,'0')}.${String(wE.getMonth()+1).padStart(2,'0')}`;
+        html += `
+          <div style="display:flex;align-items:center;padding:8px 16px 8px 28px;background:${isCurWeek?'rgba(139,0,0,.35)':'transparent'};cursor:pointer"
+               onclick="jumpToMonth(${mi},${year})">
+            <div style="flex:1;font-size:12px;color:var(--text-2)">${sL} ~ ${eL}</div>
+            <div style="text-align:right">
+              <div style="font-size:12px;font-weight:600;color:var(--income)">${state.currency}${fmt(wInc)}</div>
+              <div style="font-size:11px;color:${wBal>=0?'var(--income)':'var(--expense)'}">${state.currency}${fmt(Math.abs(wBal))}</div>
+            </div>
+          </div>`;
+      }
+    }
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function getMonthWeeks(year, month) {
+  const firstDay = new Date(year, month, 1);
+  const lastDay  = new Date(year, month + 1, 0);
+  const weeks    = [];
+  let dow        = firstDay.getDay();
+  let daysBack   = dow === 0 ? 6 : dow - 1;
+  let ws         = new Date(firstDay);
+  ws.setDate(firstDay.getDate() - daysBack);
+  while (ws <= lastDay) {
+    const we = new Date(ws);
+    we.setDate(ws.getDate() + 6);
+    weeks.push({ start: new Date(ws), end: new Date(we) });
+    ws.setDate(ws.getDate() + 7);
+  }
+  return weeks;
+}
+
+function jumpToMonth(month, year) {
+  state.navMonth = month;
+  state.navYear  = year;
+  const btn = document.querySelector('.view-tab[data-vtab="daily"]');
+  if (btn) { state.txnViewTab = 'daily'; document.querySelectorAll('.view-tab').forEach(b => b.classList.remove('active')); btn.classList.add('active'); }
+  refreshTxnList();
+}
+
+// ─── Total View ───────────────────────────────────────────────────────────────
+async function renderTotalView(container, all) {
+  const income  = all.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+  const expense = all.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const balance = income - expense;
+  const transferRaw = all.filter(t => t.type === 'transfer').reduce((s, t) => s + t.amount, 0);
+  const transfer = transferRaw / 2;
+
+  const prevM  = state.navMonth === 0 ? 11 : state.navMonth - 1;
+  const prevY  = state.navMonth === 0 ? state.navYear - 1 : state.navYear;
+  const pS     = `${prevY}-${String(prevM+1).padStart(2,'0')}-01`;
+  const pE     = `${prevY}-${String(prevM+1).padStart(2,'0')}-${new Date(prevY, prevM+1, 0).getDate()}`;
+  const pTxns  = await db.transactions.where('date').between(pS, pE, true, true).toArray();
+  const prevExp = pTxns.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const compPct = prevExp > 0 ? Math.round(expense / prevExp * 100) : null;
+
+  const accounts = await db.accounts.toArray();
+  const accMap   = {};
+  for (const a of accounts) accMap[a.id] = a;
+  const cashBankExp = all.filter(t => t.type === 'expense' && t.accountId &&
+    ['cash','savings','checking'].includes((accMap[t.accountId]?.type||'').toLowerCase()))
+    .reduce((s, t) => s + t.amount, 0);
+  const cardExp = all.filter(t => t.type === 'expense' && t.accountId &&
+    (accMap[t.accountId]?.type||'').toLowerCase() === 'credit card')
+    .reduce((s, t) => s + t.amount, 0);
+
+  const { start, end } = getNavPeriod();
+  const fD = s => { const [y,m,d] = s.split('-'); return `${d}.${m}.${y.slice(2)}`; };
+
+  container.innerHTML = `
+    <div style="padding:12px 16px">
+      <div style="display:flex;margin-bottom:12px;text-align:center">
+        <div style="flex:1">
+          <div style="font-size:11px;color:var(--text-2)">Income</div>
+          <div style="font-size:16px;font-weight:700;color:var(--income)">${state.currency}${fmt(income)}</div>
         </div>
-        <div style="flex:1;background:var(--surface);border-radius:12px;padding:12px 16px">
-          <div style="font-size:11px;color:var(--text-2)">EXPENSE</div>
-          <div style="font-size:22px;font-weight:700;color:var(--expense)">${state.currency}${fmt(expense)}</div>
+        <div style="flex:1">
+          <div style="font-size:11px;color:var(--text-2)">Expenses</div>
+          <div style="font-size:16px;font-weight:700;color:var(--expense)">${state.currency}${fmt(expense)}</div>
+        </div>
+        <div style="flex:1">
+          <div style="font-size:11px;color:var(--text-2)">Total</div>
+          <div style="font-size:16px;font-weight:700;color:${balance>=0?'var(--income)':'var(--expense)'}">${state.currency}${fmt(Math.abs(balance))}</div>
         </div>
       </div>
-      ${renderDayGroups(all)}`;
-    return;
-  }
-
-  if (state.txnViewTab === 'total') {
-    const income  = all.filter(t => t.type === 'income').reduce((s, t)  => s + t.amount, 0);
-    const expense = all.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-    list.innerHTML = `
-      <div style="padding:16px 20px">
-        <div style="background:var(--surface);border-radius:14px;padding:20px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:12px">
-            <span style="color:var(--text-2);font-size:13px">Total Income</span>
-            <span style="color:var(--income);font-weight:700">${state.currency}${fmt(income)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:12px">
-            <span style="color:var(--text-2);font-size:13px">Total Expense</span>
-            <span style="color:var(--expense);font-weight:700">${state.currency}${fmt(expense)}</span>
-          </div>
-          <div style="height:1px;background:var(--border);margin:8px 0"></div>
-          <div style="display:flex;justify-content:space-between">
-            <span style="font-size:15px;font-weight:600">Balance</span>
-            <span style="font-size:15px;font-weight:700;color:${income - expense >= 0 ? 'var(--income)' : 'var(--expense)'}">${state.currency}${fmt(Math.abs(income - expense))}</span>
-          </div>
+      <div style="background:var(--surface);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;cursor:pointer"
+           onclick="document.querySelector('[data-tab=reports]').click()">
+        <span style="font-size:20px;margin-right:10px">📋</span>
+        <span style="font-size:15px;font-weight:600;flex:1">Budget</span>
+        <span style="font-size:13px;color:var(--text-2)">Budget Setting ›</span>
+      </div>
+      <div style="background:var(--surface);border-radius:12px;padding:14px 16px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;margin-bottom:10px">
+          <span style="font-size:20px;margin-right:10px">💰</span>
+          <span style="font-size:15px;font-weight:600;flex:1">Accounts</span>
+          <span style="font-size:11px;color:var(--text-3)">${fD(start)} ~ ${fD(end)}</span>
         </div>
-      </div>`;
-    return;
-  }
-
-  list.innerHTML = renderDayGroups(all);
+        ${compPct !== null ? `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">
+          <span style="color:var(--text-2);font-size:13px">Compared Expenses (Last month)</span>
+          <span style="font-weight:700;color:${compPct>100?'var(--expense)':'var(--income)'}">${compPct}%</span>
+        </div>` : ''}
+        ${cashBankExp > 0 ? `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">
+          <span style="color:var(--text-2);font-size:13px">Expenses (Cash, Accounts)</span>
+          <span style="font-weight:600">${state.currency}${fmt(cashBankExp)}</span>
+        </div>` : ''}
+        ${cardExp > 0 ? `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">
+          <span style="color:var(--text-2);font-size:13px">Expenses (Card)</span>
+          <span style="font-weight:600">${state.currency}${fmt(cardExp)}</span>
+        </div>` : ''}
+        ${transfer > 0 ? `<div style="display:flex;justify-content:space-between;padding:7px 0">
+          <span style="color:var(--text-2);font-size:13px">Transfer (Cash, Accounts →)</span>
+          <span style="font-weight:600">${state.currency}${fmt(transfer)}</span>
+        </div>` : ''}
+        ${cashBankExp===0 && cardExp===0 && transfer===0 ? `
+          <div style="color:var(--text-3);font-size:13px;text-align:center;padding:8px 0">No account-linked transactions this month</div>` : ''}
+      </div>
+      <div style="background:var(--surface);border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer" onclick="exportData()">
+        <span style="font-size:20px">📊</span>
+        <span style="font-size:15px;font-weight:600">Export Data to JSON</span>
+      </div>
+    </div>`;
 }
 
 // ─── Add Transaction ────────────────────────────────────────────────────────
@@ -1459,6 +1717,13 @@ async function getPeriodRange(period) {
   const monthStartRow = await db.settings.get('monthStart');
   const startDay = monthStartRow?.value || 1;
   const now = new Date();
+  if (period === 'week') {
+    const dow = now.getDay();
+    const daysBack = dow === 0 ? 6 : dow - 1; // Monday-first
+    const monday = new Date(now); monday.setDate(now.getDate() - daysBack);
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+    return { start: monday.toISOString().split('T')[0], end: sunday.toISOString().split('T')[0] };
+  }
   if (period === 'month') {
     let start = new Date(now.getFullYear(), now.getMonth(), startDay);
     if (start > now) start = new Date(now.getFullYear(), now.getMonth()-1, startDay);
