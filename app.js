@@ -184,6 +184,12 @@ function setupGlobalListeners() {
   document.getElementById('claude-api-key').addEventListener('change', async e => {
     await db.settings.put({ key: 'claudeApiKey', value: e.target.value.trim() });
   });
+  document.getElementById('gemini-api-key').addEventListener('change', async e => {
+    await db.settings.put({ key: 'geminiApiKey', value: e.target.value.trim() });
+  });
+  document.getElementById('ai-preference').addEventListener('change', async e => {
+    await db.settings.put({ key: 'aiPreference', value: e.target.value });
+  });
   document.getElementById('voice-lang').addEventListener('change', async e => {
     await db.settings.put({ key: 'voiceLang', value: e.target.value });
   });
@@ -817,10 +823,12 @@ async function saveTransfer() {
 async function refreshSettings() {
   const settings = {};
   (await db.settings.toArray()).forEach(s => { settings[s.key] = s.value; });
-  document.getElementById('settings-currency').value    = settings.currency   || '₹';
-  document.getElementById('settings-month-start').value = settings.monthStart || 1;
+  document.getElementById('settings-currency').value    = settings.currency     || '₹';
+  document.getElementById('settings-month-start').value = settings.monthStart   || 1;
   document.getElementById('claude-api-key').value       = settings.claudeApiKey || '';
-  document.getElementById('voice-lang').value           = settings.voiceLang  || 'en-IN';
+  document.getElementById('gemini-api-key').value       = settings.geminiApiKey || '';
+  document.getElementById('ai-preference').value        = settings.aiPreference || 'claude';
+  document.getElementById('voice-lang').value           = settings.voiceLang    || 'en-IN';
   setToggleVisual('toggle-readback', settings.readbackEnabled ?? true);
 }
 
@@ -948,13 +956,14 @@ async function processVoiceText(text, confidence = 1.0) {
   document.getElementById('voice-status').textContent = 'Processing…';
   state.voiceMode = 'processing';
 
-  const keyRow = await db.settings.get('claudeApiKey');
-  const hasKey = !!keyRow?.value;
+  const ai = await getActiveAI();
 
-  if (hasKey) {
-    document.getElementById('voice-status').textContent = '🤔 Thinking…';
+  if (ai) {
+    document.getElementById('voice-status').textContent = `🤔 Thinking…`;
     const scenario = hasMultipleAmounts(text) ? 'multi' : 'standard';
-    const aiResult = await callClaudeVoice(text, scenario, confidence);
+    const aiResult = ai.provider === 'gemini'
+      ? await callGeminiVoice(text, scenario, confidence, ai.key)
+      : await callClaudeVoice(text, scenario, confidence, ai.key);
     if (aiResult) {
       if (aiResult.transactions?.length > 1) {
         state.pendingMultiTxns = aiResult.transactions;
@@ -1096,33 +1105,145 @@ function speakConfirmation(text) {
 function hasMultipleAmounts(text) { return (text.match(/\d+(?:\.\d+)?(?:\s*k)?/gi) || []).length >= 2; }
 function isCancellation(text) { return /^(cancel|stop|never mind|forget it|undo that)$/i.test(text.trim()); }
 
-// ─── Claude API ──────────────────────────────────────────────────────────────
-async function callClaudeVoice(transcript, scenario = 'standard', confidence = 1.0) {
-  const keyRow = await db.settings.get('claudeApiKey');
-  const apiKey = keyRow?.value;
-  if (!apiKey) return null;
-  const today = new Date().toISOString().split('T')[0];
-  const CATEGORY_LIST = Object.entries(KEYWORD_MAP).map(([k,[c,s]]) => `${k}→${c}${s?'›'+s:''}`).join(', ');
-  const isMulti = scenario === 'multi';
-  const systemPrompt = isMulti
-    ? `You are a financial transaction parser for an Indian expense tracking app. Extract ALL transactions from the user's voice input. Return ONLY valid JSON. Rules: Amounts in INR. 'k' means thousands. 'and','also','+','plus' signal multiple transactions. Distinguish income from expense by context. Match merchants to: ${CATEGORY_LIST}. Today: ${today}. Return: {"transactions":[{"amount":number,"type":"expense"|"income","merchant":string,"categoryName":string,"subcategoryName":string,"date":"YYYY-MM-DD","note":string}],"confirmText":string}`
-    : `You are parsing a voice-to-text transcript for an Indian expense app. Transcript confidence: ${(confidence*100).toFixed(0)}%. ${state.voiceAlternates.length?`Alternate readings: ${state.voiceAlternates.map(a=>`"${a}"`).join(', ')}`:''}. Categories: ${CATEGORY_LIST}. Today: ${today}. Return ONLY JSON: {"amount":number|null,"type":"expense"|"income","merchant":string|null,"categoryName":string|null,"subcategoryName":string|null,"date":"YYYY-MM-DD","note":string,"needsConfirmation":boolean}`;
+// ─── AI Routing ──────────────────────────────────────────────────────────────
+async function getActiveAI() {
+  const [claudeRow, geminiRow, prefRow] = await Promise.all([
+    db.settings.get('claudeApiKey'),
+    db.settings.get('geminiApiKey'),
+    db.settings.get('aiPreference'),
+  ]);
+  const claudeKey = claudeRow?.value?.trim() || '';
+  const geminiKey = geminiRow?.value?.trim() || '';
+  const pref      = prefRow?.value || 'claude';
 
+  if (pref === 'gemini') {
+    if (geminiKey) return { provider: 'gemini', key: geminiKey };
+    if (claudeKey) return { provider: 'claude', key: claudeKey };
+  } else {
+    if (claudeKey) return { provider: 'claude', key: claudeKey };
+    if (geminiKey) return { provider: 'gemini', key: geminiKey };
+  }
+  return null;
+}
+
+function buildVoicePrompts(scenario, confidence) {
+  const today = new Date().toISOString().split('T')[0];
+  const CATS  = Object.entries(KEYWORD_MAP).map(([k,[c,s]]) => `${k}→${c}${s?'›'+s:''}`).join(', ');
+  const alts  = state.voiceAlternates.length ? `Alternate readings: ${state.voiceAlternates.map(a=>`"${a}"`).join(', ')}.` : '';
+  const multi = `You are a financial transaction parser for an Indian expense tracking app. Extract ALL transactions from the user's voice input. Return ONLY valid JSON. Rules: Amounts in INR. 'k' means thousands. 'and','also','+','plus' signal multiple transactions. Distinguish income from expense by context. Match merchants to: ${CATS}. Today: ${today}. Return: {"transactions":[{"amount":number,"type":"expense"|"income","merchant":string,"categoryName":string,"subcategoryName":string,"date":"YYYY-MM-DD","note":string}],"confirmText":string}`;
+  const single = `You are parsing a voice-to-text transcript for an Indian expense app. Transcript confidence: ${(confidence*100).toFixed(0)}%. ${alts} Categories: ${CATS}. Today: ${today}. Return ONLY JSON: {"amount":number|null,"type":"expense"|"income","merchant":string|null,"categoryName":string|null,"subcategoryName":string|null,"date":"YYYY-MM-DD","note":string,"needsConfirmation":boolean}`;
+  return scenario === 'multi' ? multi : single;
+}
+
+function buildReceiptPrompt() {
+  const today = new Date().toISOString().split('T')[0];
+  return `Extract receipt data and return ONLY valid JSON with keys: amount (number, the total paid), merchant (string, store/restaurant name), date ("YYYY-MM-DD", today is ${today} if not visible), categoryName (one of: Food & Dining, Transport, Health, Shopping, Bills & Utilities, Entertainment, Other, or null). No explanation, just JSON.`;
+}
+
+function parseAIJson(text) {
+  return JSON.parse(text.replace(/```json|```/g, '').trim());
+}
+
+// ─── Claude API ───────────────────────────────────────────────────────────────
+async function callClaudeVoice(transcript, scenario = 'standard', confidence = 1.0, apiKey) {
+  if (!apiKey) return null;
   const controller = new AbortController();
   const timeout    = setTimeout(() => controller.abort(), 8000);
   try {
-    const res  = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: controller.signal,
       headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
-      body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:1000, system:systemPrompt, messages:[{role:'user',content:transcript}] }),
+      body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:1000, system:buildVoicePrompts(scenario, confidence), messages:[{role:'user',content:transcript}] }),
     });
     clearTimeout(timeout);
-    const data  = await res.json();
-    const text  = data.content?.find(b => b.type === 'text')?.text || '{}';
-    return JSON.parse(text.replace(/```json|```/g, '').trim());
+    const data = await res.json();
+    return parseAIJson(data.content?.find(b => b.type==='text')?.text || '{}');
   } catch (err) {
     clearTimeout(timeout);
-    console.warn('[Claude] API call failed:', err.message);
+    console.warn('[Claude] voice failed:', err.message);
+    return null;
+  }
+}
+
+async function extractReceiptClaude(imageB64, apiKey) {
+  const mediaType  = imageB64.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
+  const b64data    = imageB64.split(',')[1];
+  const controller = new AbortController();
+  const timeout    = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 400,
+        system: buildReceiptPrompt(),
+        messages: [{ role:'user', content:[
+          { type:'image', source:{ type:'base64', media_type:mediaType, data:b64data } },
+          { type:'text', text:'Extract the total amount paid, merchant name, date, and category from this receipt.' }
+        ]}]
+      }),
+    });
+    clearTimeout(timeout);
+    const data = await res.json();
+    return parseAIJson(data.content?.find(b => b.type==='text')?.text || '{}');
+  } catch (err) {
+    clearTimeout(timeout);
+    console.warn('[Claude] receipt failed:', err.message);
+    return null;
+  }
+}
+
+// ─── Gemini API ───────────────────────────────────────────────────────────────
+const GEMINI_URL = key => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+
+async function callGeminiVoice(transcript, scenario = 'standard', confidence = 1.0, apiKey) {
+  if (!apiKey) return null;
+  const controller = new AbortController();
+  const timeout    = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(GEMINI_URL(apiKey), {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: buildVoicePrompts(scenario, confidence) }] },
+        contents: [{ role:'user', parts:[{ text: transcript }] }],
+        generationConfig: { maxOutputTokens: 1000, temperature: 0.1 },
+      }),
+    });
+    clearTimeout(timeout);
+    const data = await res.json();
+    return parseAIJson(data.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
+  } catch (err) {
+    clearTimeout(timeout);
+    console.warn('[Gemini] voice failed:', err.message);
+    return null;
+  }
+}
+
+async function extractReceiptGemini(imageB64, apiKey) {
+  const mediaType  = imageB64.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
+  const b64data    = imageB64.split(',')[1];
+  const controller = new AbortController();
+  const timeout    = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(GEMINI_URL(apiKey), {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: buildReceiptPrompt() }] },
+        contents: [{ role:'user', parts:[
+          { inlineData: { mimeType: mediaType, data: b64data } },
+          { text: 'Extract the total amount paid, merchant name, date, and category from this receipt.' }
+        ]}],
+        generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
+      }),
+    });
+    clearTimeout(timeout);
+    const data = await res.json();
+    return parseAIJson(data.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
+  } catch (err) {
+    clearTimeout(timeout);
+    console.warn('[Gemini] receipt failed:', err.message);
     return null;
   }
 }
@@ -1192,8 +1313,9 @@ function handleScanFile(input) {
 }
 
 async function runOCR(imageB64) {
-  document.getElementById('scan-status').textContent = 'Reading bill…';
-  await sleep(400);
+  const ai = await getActiveAI();
+  document.getElementById('scan-status').textContent = ai ? `Reading bill with ${ai.provider === 'gemini' ? 'Gemini' : 'Claude'}…` : 'Reading bill…';
+  await sleep(300);
   const result = await extractReceiptData(imageB64);
   state.scanData = result;
   document.getElementById('scan-amount').value   = result.amount || '';
@@ -1205,43 +1327,13 @@ async function runOCR(imageB64) {
 }
 
 async function extractReceiptData(imageB64) {
-  const keyRow = await db.settings.get('claudeApiKey');
-  const apiKey = keyRow?.value;
-  if (!apiKey) return { amount:null, merchant:'', date:new Date().toISOString().split('T')[0] };
-
-  const today      = new Date().toISOString().split('T')[0];
-  const mediaType  = imageB64.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
-  const b64data    = imageB64.split(',')[1];
-  const controller = new AbortController();
-  const timeout    = setTimeout(() => controller.abort(), 20000);
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        system: `You extract data from receipts/bills. Return ONLY valid JSON with keys: amount (number, the total paid), merchant (string, store/restaurant name), date ("YYYY-MM-DD", today is ${today} if not visible), categoryName (string matching one of: Food & Dining, Transport, Health, Shopping, Bills & Utilities, Entertainment, Other, or null). No explanation, just JSON.`,
-        messages: [{
-          role: 'user',
-          content: [
-            { type:'image', source:{ type:'base64', media_type:mediaType, data:b64data } },
-            { type:'text', text:'Extract the total amount paid, merchant name, date, and category from this receipt.' }
-          ]
-        }]
-      })
-    });
-    clearTimeout(timeout);
-    const data = await res.json();
-    const text = data.content?.find(b => b.type === 'text')?.text || '{}';
-    return JSON.parse(text.replace(/```json|```/g, '').trim());
-  } catch (err) {
-    clearTimeout(timeout);
-    console.warn('[Claude] Receipt scan failed:', err.message);
-    return { amount:null, merchant:'', date:new Date().toISOString().split('T')[0] };
-  }
+  const fallback = { amount:null, merchant:'', date:new Date().toISOString().split('T')[0] };
+  const ai = await getActiveAI();
+  if (!ai) return fallback;
+  const result = ai.provider === 'gemini'
+    ? await extractReceiptGemini(imageB64, ai.key)
+    : await extractReceiptClaude(imageB64, ai.key);
+  return result || fallback;
 }
 
 async function useScanData() {

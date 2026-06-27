@@ -420,13 +420,24 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Claude AI (Voice &amp; Scan)</div>
+        <div class="settings-section-title">AI Assistant (Voice &amp; Scan)</div>
         <div class="settings-row">
-          <label style="font-size:13px;color:var(--text-2)">Used for all voice input and receipt scanning when a key is set.</label>
+          <label style="font-size:13px;color:var(--text-2)">Used for all voice input and receipt scanning. If both keys are set, the preferred AI is tried first.</label>
+        </div>
+        <div class="settings-row">
+          <label for="ai-preference">Preferred AI</label>
+          <select id="ai-preference">
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="gemini">Gemini (Google)</option>
+          </select>
         </div>
         <div class="settings-row settings-row-full">
-          <label for="claude-api-key">API Key</label>
+          <label for="claude-api-key">Claude API Key</label>
           <input id="claude-api-key" type="password" placeholder="sk-ant-api03-…" style="max-width:100%;padding:8px 10px">
+        </div>
+        <div class="settings-row settings-row-full">
+          <label for="gemini-api-key">Gemini API Key</label>
+          <input id="gemini-api-key" type="password" placeholder="AIzaSy…" style="max-width:100%;padding:8px 10px">
         </div>
       </div>
 

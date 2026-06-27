@@ -64,8 +64,9 @@ async function seedDefaults() {
   await db.settings.bulkPut([
     { key: 'currency',       value: '₹' },
     { key: 'monthStart',     value: 1 },
-    { key: 'claudeEnabled',  value: true },
     { key: 'claudeApiKey',   value: '' },
+    { key: 'geminiApiKey',   value: '' },
+    { key: 'aiPreference',   value: 'claude' },
     { key: 'readbackEnabled',value: true },
     { key: 'voiceLang',      value: 'en-IN' },
   ]);
