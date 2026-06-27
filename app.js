@@ -1194,7 +1194,7 @@ async function extractReceiptClaude(imageB64, apiKey) {
 }
 
 // ─── Gemini API ───────────────────────────────────────────────────────────────
-const GEMINI_URL = key => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+const GEMINI_URL = key => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
 
 async function callGeminiVoice(transcript, scenario = 'standard', confidence = 1.0, apiKey) {
   if (!apiKey) return null;
