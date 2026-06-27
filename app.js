@@ -181,14 +181,13 @@ function setupGlobalListeners() {
     await db.settings.put({ key: 'monthStart', value: parseInt(e.target.value) });
   });
   document.getElementById('toggle-readback').addEventListener('click', () => toggleSetting('readbackEnabled', 'toggle-readback'));
-  document.getElementById('claude-api-key').addEventListener('change', async e => {
-    await db.settings.put({ key: 'claudeApiKey', value: e.target.value.trim() });
+  document.getElementById('toggle-ai').addEventListener('click', () => toggleSetting('aiEnabled', 'toggle-ai'));
+  document.getElementById('ai-api-key').addEventListener('change', async e => {
+    await db.settings.put({ key: 'aiApiKey', value: e.target.value.trim() });
   });
-  document.getElementById('gemini-api-key').addEventListener('change', async e => {
-    await db.settings.put({ key: 'geminiApiKey', value: e.target.value.trim() });
-  });
-  document.getElementById('ai-preference').addEventListener('change', async e => {
-    await db.settings.put({ key: 'aiPreference', value: e.target.value });
+  document.getElementById('ai-model').addEventListener('change', async e => {
+    await db.settings.put({ key: 'aiModel', value: e.target.value });
+    updateAIKeyHint(e.target.value);
   });
   document.getElementById('voice-lang').addEventListener('change', async e => {
     await db.settings.put({ key: 'voiceLang', value: e.target.value });
@@ -823,17 +822,27 @@ async function saveTransfer() {
 async function refreshSettings() {
   const settings = {};
   (await db.settings.toArray()).forEach(s => { settings[s.key] = s.value; });
-  document.getElementById('settings-currency').value    = settings.currency     || '₹';
-  document.getElementById('settings-month-start').value = settings.monthStart   || 1;
-  document.getElementById('claude-api-key').value       = settings.claudeApiKey || '';
-  document.getElementById('gemini-api-key').value       = settings.geminiApiKey || '';
-  document.getElementById('ai-preference').value        = settings.aiPreference || 'claude';
-  document.getElementById('voice-lang').value           = settings.voiceLang    || 'en-IN';
+  document.getElementById('settings-currency').value    = settings.currency  || '₹';
+  document.getElementById('settings-month-start').value = settings.monthStart || 1;
+  document.getElementById('ai-api-key').value           = settings.aiApiKey  || '';
+  const model = settings.aiModel || 'gemini-2.5-flash';
+  document.getElementById('ai-model').value             = model;
+  document.getElementById('voice-lang').value           = settings.voiceLang || 'en-IN';
+  setToggleVisual('toggle-ai',       settings.aiEnabled      ?? true);
   setToggleVisual('toggle-readback', settings.readbackEnabled ?? true);
+  updateAIKeyHint(model);
 }
 
 function setToggleVisual(id, on) {
   document.getElementById(id).classList.toggle('on', !!on);
+}
+
+function updateAIKeyHint(model) {
+  const hint = document.getElementById('ai-key-hint');
+  if (!hint) return;
+  hint.textContent = model?.startsWith('claude')
+    ? 'Claude key starts with sk-ant-api03-… — get it at console.anthropic.com'
+    : 'Gemini key starts with AIzaSy… — get it at aistudio.google.com';
 }
 
 async function toggleSetting(key, btnId) {
@@ -842,6 +851,7 @@ async function toggleSetting(key, btnId) {
   await db.settings.put({ key, value: next });
   setToggleVisual(btnId, next);
   if (key === 'readbackEnabled') state.readbackEnabled = next;
+  if (key === 'aiEnabled') state.aiEnabled = next;
 }
 
 async function exportData() {
@@ -958,12 +968,18 @@ async function processVoiceText(text, confidence = 1.0) {
 
   const ai = await getActiveAI();
 
+  if (ai?.noKey) {
+    document.getElementById('voice-status').textContent = '⚠️ No API key configured.';
+    showAIWarning();
+    return;
+  }
+
   if (ai) {
-    document.getElementById('voice-status').textContent = `🤔 Thinking…`;
+    document.getElementById('voice-status').textContent = '🤔 Thinking…';
     const scenario = hasMultipleAmounts(text) ? 'multi' : 'standard';
     const aiResult = ai.provider === 'gemini'
-      ? await callGeminiVoice(text, scenario, confidence, ai.key)
-      : await callClaudeVoice(text, scenario, confidence, ai.key);
+      ? await callGeminiVoice(text, scenario, confidence, ai.key, ai.model)
+      : await callClaudeVoice(text, scenario, confidence, ai.key, ai.model);
     if (aiResult) {
       if (aiResult.transactions?.length > 1) {
         state.pendingMultiTxns = aiResult.transactions;
@@ -1106,24 +1122,42 @@ function hasMultipleAmounts(text) { return (text.match(/\d+(?:\.\d+)?(?:\s*k)?/g
 function isCancellation(text) { return /^(cancel|stop|never mind|forget it|undo that)$/i.test(text.trim()); }
 
 // ─── AI Routing ──────────────────────────────────────────────────────────────
+// Returns:
+//   null                          → AI disabled, use NLP
+//   { noKey: true }               → AI enabled but key missing, show warning
+//   { provider, key, model }      → ready to call AI
 async function getActiveAI() {
-  const [claudeRow, geminiRow, prefRow] = await Promise.all([
-    db.settings.get('claudeApiKey'),
-    db.settings.get('geminiApiKey'),
-    db.settings.get('aiPreference'),
+  const [enabledRow, keyRow, modelRow] = await Promise.all([
+    db.settings.get('aiEnabled'),
+    db.settings.get('aiApiKey'),
+    db.settings.get('aiModel'),
   ]);
-  const claudeKey = claudeRow?.value?.trim() || '';
-  const geminiKey = geminiRow?.value?.trim() || '';
-  const pref      = prefRow?.value || 'claude';
+  const enabled = enabledRow?.value ?? true;
+  if (!enabled) return null;
 
-  if (pref === 'gemini') {
-    if (geminiKey) return { provider: 'gemini', key: geminiKey };
-    if (claudeKey) return { provider: 'claude', key: claudeKey };
-  } else {
-    if (claudeKey) return { provider: 'claude', key: claudeKey };
-    if (geminiKey) return { provider: 'gemini', key: geminiKey };
-  }
-  return null;
+  const key   = keyRow?.value?.trim()  || '';
+  const model = modelRow?.value?.trim() || 'gemini-2.5-flash';
+  if (!key) return { noKey: true };
+
+  const provider = model.startsWith('claude') ? 'claude' : 'gemini';
+  return { provider, key, model };
+}
+
+function showAIWarning() {
+  const el = document.getElementById('ai-warning-modal');
+  el.style.display = 'flex';
+}
+
+function closeAIWarning() {
+  document.getElementById('ai-warning-modal').style.display = 'none';
+}
+
+function goToAISettings() {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.remove('active'));
+  document.getElementById('settings').classList.add('active');
+  document.querySelector('[data-tab="settings"]').classList.add('active');
+  refreshSettings();
 }
 
 function buildVoicePrompts(scenario, confidence) {
@@ -1145,7 +1179,7 @@ function parseAIJson(text) {
 }
 
 // ─── Claude API ───────────────────────────────────────────────────────────────
-async function callClaudeVoice(transcript, scenario = 'standard', confidence = 1.0, apiKey) {
+async function callClaudeVoice(transcript, scenario = 'standard', confidence = 1.0, apiKey, model = 'claude-haiku-4-5-20251001') {
   if (!apiKey) return null;
   const controller = new AbortController();
   const timeout    = setTimeout(() => controller.abort(), 8000);
@@ -1153,7 +1187,7 @@ async function callClaudeVoice(transcript, scenario = 'standard', confidence = 1
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: controller.signal,
       headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
-      body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:1000, system:buildVoicePrompts(scenario, confidence), messages:[{role:'user',content:transcript}] }),
+      body: JSON.stringify({ model, max_tokens:1000, system:buildVoicePrompts(scenario, confidence), messages:[{role:'user',content:transcript}] }),
     });
     clearTimeout(timeout);
     const data = await res.json();
@@ -1165,7 +1199,7 @@ async function callClaudeVoice(transcript, scenario = 'standard', confidence = 1
   }
 }
 
-async function extractReceiptClaude(imageB64, apiKey) {
+async function extractReceiptClaude(imageB64, apiKey, model = 'claude-haiku-4-5-20251001') {
   const mediaType  = imageB64.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
   const b64data    = imageB64.split(',')[1];
   const controller = new AbortController();
@@ -1175,7 +1209,7 @@ async function extractReceiptClaude(imageB64, apiKey) {
       method: 'POST', signal: controller.signal,
       headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001', max_tokens: 400,
+        model, max_tokens: 400,
         system: buildReceiptPrompt(),
         messages: [{ role:'user', content:[
           { type:'image', source:{ type:'base64', media_type:mediaType, data:b64data } },
@@ -1194,14 +1228,14 @@ async function extractReceiptClaude(imageB64, apiKey) {
 }
 
 // ─── Gemini API ───────────────────────────────────────────────────────────────
-const GEMINI_URL = key => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+const GEMINI_URL = (key, model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
-async function callGeminiVoice(transcript, scenario = 'standard', confidence = 1.0, apiKey) {
+async function callGeminiVoice(transcript, scenario = 'standard', confidence = 1.0, apiKey, model = 'gemini-2.5-flash') {
   if (!apiKey) return null;
   const controller = new AbortController();
   const timeout    = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(GEMINI_URL(apiKey), {
+    const res = await fetch(GEMINI_URL(apiKey, model), {
       method: 'POST', signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1220,13 +1254,13 @@ async function callGeminiVoice(transcript, scenario = 'standard', confidence = 1
   }
 }
 
-async function extractReceiptGemini(imageB64, apiKey) {
+async function extractReceiptGemini(imageB64, apiKey, model = 'gemini-2.5-flash') {
   const mediaType  = imageB64.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
   const b64data    = imageB64.split(',')[1];
   const controller = new AbortController();
   const timeout    = setTimeout(() => controller.abort(), 20000);
   try {
-    const res = await fetch(GEMINI_URL(apiKey), {
+    const res = await fetch(GEMINI_URL(apiKey, model), {
       method: 'POST', signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1314,13 +1348,20 @@ function handleScanFile(input) {
 
 async function runOCR(imageB64) {
   const ai = await getActiveAI();
-  document.getElementById('scan-status').textContent = ai ? `Reading bill with ${ai.provider === 'gemini' ? 'Gemini' : 'Claude'}…` : 'Reading bill…';
+  if (ai?.noKey) {
+    document.getElementById('scan-status').textContent = '⚠️ No API key configured.';
+    showAIWarning();
+    return;
+  }
+  const label = !ai ? 'Reading bill…' : `Reading bill with ${ai.provider === 'gemini' ? 'Gemini' : 'Claude'}…`;
+  document.getElementById('scan-status').textContent = label;
   await sleep(300);
   const result = await extractReceiptData(imageB64);
+  if (!result) return; // warning already shown
   state.scanData = result;
-  document.getElementById('scan-amount').value   = result.amount || '';
+  document.getElementById('scan-amount').value   = result.amount   || '';
   document.getElementById('scan-merchant').value = result.merchant || '';
-  document.getElementById('scan-date').value     = result.date || new Date().toISOString().split('T')[0];
+  document.getElementById('scan-date').value     = result.date     || new Date().toISOString().split('T')[0];
   document.getElementById('scan-fields').style.display  = 'block';
   document.getElementById('scan-use-btn').style.display = 'block';
   document.getElementById('scan-status').textContent    = 'Edit fields if needed, then tap Use';
@@ -1329,10 +1370,18 @@ async function runOCR(imageB64) {
 async function extractReceiptData(imageB64) {
   const fallback = { amount:null, merchant:'', date:new Date().toISOString().split('T')[0] };
   const ai = await getActiveAI();
-  if (!ai) return fallback;
+
+  if (ai?.noKey) {
+    document.getElementById('scan-status').textContent = '⚠️ No API key configured.';
+    showAIWarning();
+    return null; // null signals caller to leave fields empty and stay open
+  }
+
+  if (!ai) return fallback; // NLP mode — no AI for scan, return empty
+
   const result = ai.provider === 'gemini'
-    ? await extractReceiptGemini(imageB64, ai.key)
-    : await extractReceiptClaude(imageB64, ai.key);
+    ? await extractReceiptGemini(imageB64, ai.key, ai.model)
+    : await extractReceiptClaude(imageB64, ai.key, ai.model);
   return result || fallback;
 }
 
