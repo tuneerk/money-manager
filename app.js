@@ -709,19 +709,52 @@ async function refreshAccounts() {
     if (items.length === 0) continue;
     const groupTotal = items.reduce((s, a) => s + (a.balance || 0), 0);
     html += `<div class="acc-group-header"><span>${groupName}</span><span class="acc-group-total">${state.currency}${fmt(Math.abs(groupTotal))}</span></div>`;
-    html += items.map(a => `
-      <div class="account-row">
-        <div class="acc-icon-circle">${a.icon || '🏦'}</div>
-        <div class="acc-info">
-          <div class="acc-name">${a.name}</div>
-          <div class="acc-type">${a.type}</div>
-        </div>
-        <div class="acc-balance ${a.balance >= 0 ? 'positive' : 'negative'}">
-          ${state.currency}${fmt(Math.abs(a.balance || 0))}
-        </div>
-      </div>`).join('');
+    html += items.map(a => accountRowHTML(a)).join('');
   }
   list.innerHTML = html;
+}
+
+function accountRowHTML(a) {
+  const isCC      = a.type === 'Credit Card';
+  const balance   = a.balance || 0;
+  const hasLimit  = isCC && a.limit > 0;
+  // outstanding = how much is owed (positive number when balance < 0)
+  const outstanding = isCC ? Math.max(-balance, 0) : 0;
+  const available   = hasLimit ? Math.max(a.limit - outstanding, 0) : null;
+  const utilPct     = hasLimit ? Math.min(100, Math.round(outstanding / a.limit * 100)) : null;
+  const barColor    = utilPct >= 80 ? 'var(--expense)' : utilPct >= 50 ? '#FFD700' : 'var(--income)';
+
+  const balanceHTML = isCC ? `
+    <div style="text-align:right;flex-shrink:0">
+      <div class="acc-balance ${outstanding > 0 ? 'negative' : 'positive'}">
+        ${outstanding > 0 ? '-' : ''}${state.currency}${fmt(outstanding)}
+      </div>
+      ${hasLimit ? `<div style="font-size:11px;color:var(--text-2);margin-top:1px">${state.currency}${fmt(available)} free</div>` : ''}
+    </div>` : `
+    <div class="acc-balance ${balance >= 0 ? 'positive' : 'negative'}">
+      ${state.currency}${fmt(Math.abs(balance))}
+    </div>`;
+
+  const utilizationHTML = hasLimit ? `
+    <div style="margin-top:5px">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);margin-bottom:2px">
+        <span>Utilisation</span><span>${utilPct}% of ${state.currency}${fmt(a.limit)}</span>
+      </div>
+      <div style="height:3px;background:var(--border);border-radius:2px">
+        <div style="width:${utilPct}%;height:100%;border-radius:2px;background:${barColor};transition:width .3s"></div>
+      </div>
+    </div>` : '';
+
+  return `
+    <div class="account-row">
+      <div class="acc-icon-circle">${a.icon || '🏦'}</div>
+      <div class="acc-info" style="flex:1;min-width:0">
+        <div class="acc-name">${a.name}</div>
+        <div class="acc-type">${a.type}</div>
+        ${utilizationHTML}
+      </div>
+      ${balanceHTML}
+    </div>`;
 }
 
 function groupAccounts(accounts) {
@@ -741,9 +774,16 @@ function openAccountSheet() {
   document.getElementById('account-name').value    = '';
   document.getElementById('account-type').value    = 'Savings';
   document.getElementById('account-balance').value = '';
+  document.getElementById('account-limit').value   = '';
+  document.getElementById('credit-limit-field').style.display = 'none';
   state.selectedAccIcon = '🏦';
   document.getElementById('acc-icon-preview').textContent = '🏦';
   openOverlay('account-sheet');
+}
+
+function onAccountTypeChange(type) {
+  document.getElementById('credit-limit-field').style.display =
+    type === 'Credit Card' ? 'block' : 'none';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -760,11 +800,16 @@ document.addEventListener('DOMContentLoaded', () => {
 async function saveAccount() {
   const name = document.getElementById('account-name').value.trim();
   if (!name) { showToast('Enter account name'); return; }
+  const type  = document.getElementById('account-type').value;
+  const limit = type === 'Credit Card'
+    ? (parseFloat(document.getElementById('account-limit').value) || null)
+    : null;
   await db.accounts.add({
     name,
-    type:    document.getElementById('account-type').value,
+    type,
     balance: parseFloat(document.getElementById('account-balance').value) || 0,
-    icon:    state.selectedAccIcon,
+    limit,
+    icon: state.selectedAccIcon,
   });
   closeOverlay('account-sheet');
   await refreshAccounts();

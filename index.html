@@ -632,7 +632,7 @@
     <div class="form-row-2">
       <div class="form-field">
         <div class="field-label">Type</div>
-        <select id="account-type" class="field-select">
+        <select id="account-type" class="field-select" onchange="onAccountTypeChange(this.value)">
           <option>Savings</option>
           <option>Checking</option>
           <option>Cash</option>
@@ -645,6 +645,10 @@
         <div class="field-label">Opening Balance</div>
         <input id="account-balance" class="field-input" type="number" inputmode="decimal" placeholder="0">
       </div>
+    </div>
+    <div id="credit-limit-field" class="form-field" style="display:none">
+      <div class="field-label">Credit Limit</div>
+      <input id="account-limit" class="field-input" type="number" inputmode="decimal" placeholder="e.g. 100000">
     </div>
     <button id="save-account-btn" class="btn btn-primary">Add Account</button>
   </div>
