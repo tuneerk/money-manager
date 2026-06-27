@@ -138,6 +138,9 @@ function setupGlobalListeners() {
   );
 
   document.getElementById('toast-undo').addEventListener('click', undoLastTxn);
+  document.getElementById('toast').addEventListener('click', e => {
+    if (e.target.id !== 'toast-undo') dismissToast();
+  });
 
   document.getElementById('txn-type-expense').addEventListener('click',  () => setTxnType('expense'));
   document.getElementById('txn-type-income').addEventListener('click',   () => setTxnType('income'));
@@ -1728,11 +1731,15 @@ function getCatMeta(name) {
 let toastTimer = null;
 function showToast(msg, showUndo = false) {
   const toast = document.getElementById('toast');
-  document.getElementById('toast-msg').textContent          = msg;
-  document.getElementById('toast-undo').style.display       = showUndo ? 'inline-block' : 'none';
+  document.getElementById('toast-msg').textContent    = msg;
+  document.getElementById('toast-undo').style.display = showUndo ? 'inline-block' : 'none';
   toast.classList.add('show');
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 4000);
+  toastTimer = setTimeout(dismissToast, 3000);
+}
+function dismissToast() {
+  document.getElementById('toast').classList.remove('show');
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
 }
 
 async function undoLastTxn() {
