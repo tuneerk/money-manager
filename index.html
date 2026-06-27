@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#059669">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MoneyMgr">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <title>Money Manager</title>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #059669;
+      --primary-light: #d1fae5;
+      --primary-dark: #047857;
+      --danger: #dc2626;
+      --income-color: #059669;
+      --expense-color: #dc2626;
+      --transfer-color: #7c3aed;
+      --bg: #f9fafb;
+      --surface: #ffffff;
+      --border: #e5e7eb;
+      --text: #111827;
+      --text-2: #6b7280;
+      --text-3: #9ca3af;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 4px rgba(0,0,0,.1);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
+      --nav-h: 60px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; }
+
+    /* ── App Layout ── */
+    #app { display: flex; flex-direction: column; height: 100%; max-width: 480px; margin: 0 auto; position: relative; background: var(--bg); }
+    #screens { flex: 1; overflow: hidden; position: relative; }
+    .screen { position: absolute; inset: 0; overflow-y: auto; padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 80px); display: none; }
+    .screen.active { display: block; }
+
+    /* ── Bottom Nav ── */
+    #bottom-nav {
+      height: calc(var(--nav-h) + var(--safe-bottom));
+      padding-bottom: var(--safe-bottom);
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      position: relative;
+      z-index: 10;
+    }
+    .nav-btn {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; border: none; background: none; cursor: pointer; color: var(--text-3);
+      font-size: 11px; padding: 8px 0; transition: color .15s;
+    }
+    .nav-btn.active { color: var(--primary); }
+    .nav-btn svg { width: 22px; height: 22px; }
+    .nav-btn.active svg { stroke: var(--primary); }
+
+    /* ── FAB ── */
+    #fab-container { position: fixed; bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px); right: 16px; z-index: 100; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+    .fab { width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-lg); transition: transform .2s; }
+    #fab-main { background: var(--primary); color: white; font-size: 24px; z-index: 2; }
+    #fab-main.open { transform: rotate(45deg); }
+    #fab-menu { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .2s, transform .2s; }
+    #fab-menu.open { opacity: 1; pointer-events: auto; transform: translateY(0); }
+    .fab-mini { background: var(--surface); color: var(--text); font-size: 18px; display: flex; align-items: center; gap: 8px; padding: 0 16px; width: auto; border-radius: 24px; box-shadow: var(--shadow-lg); height: 44px; font-size: 14px; font-weight: 500; white-space: nowrap; }
+    .fab-mini span.icon { font-size: 20px; }
+
+    /* ── Overlays / Bottom Sheets ── */
+    .overlay-bg {
+      position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.4);
+      display: flex; align-items: flex-end; justify-content: center;
+      opacity: 0; pointer-events: none; transition: opacity .25s;
+    }
+    .overlay-bg.active { opacity: 1; pointer-events: auto; }
+    .sheet {
+      background: var(--surface); border-radius: var(--radius) var(--radius) 0 0;
+      width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto;
+      padding: 16px 16px calc(16px + var(--safe-bottom));
+      transform: translateY(100%); transition: transform .3s cubic-bezier(.4,0,.2,1);
+    }
+    .overlay-bg.active .sheet { transform: translateY(0); }
+    .sheet-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 16px; }
+    .sheet-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+
+    /* ── Form Elements ── */
+    label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 4px; }
+    input, select, textarea {
+      width: 100%; padding: 12px 14px; border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm); font-size: 15px; color: var(--text);
+      background: var(--surface); outline: none; transition: border-color .15s;
+      font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+    .form-group { margin-bottom: 14px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    /* ── Buttons ── */
+    .btn { display: block; width: 100%; padding: 14px; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 16px; font-weight: 600; font-family: inherit; transition: opacity .15s; }
+    .btn:active { opacity: .8; }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-outline { background: transparent; border: 1.5px solid var(--border); color: var(--text); }
+    .btn-danger  { background: var(--danger); color: white; }
+    .btn-sm { padding: 6px 12px; font-size: 13px; border-radius: 6px; border: 1.5px solid var(--border); background: var(--surface); cursor: pointer; }
+    .btn-icon { background: none; border: none; cursor: pointer; font-size: 18px; padding: 4px; }
+    .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+    .btn-row .btn { flex: 1; }
+
+    /* ── Type Toggle ── */
+    .type-toggle { display: flex; background: var(--bg); border-radius: var(--radius-sm); padding: 3px; margin-bottom: 16px; }
+    .type-btn { flex: 1; padding: 8px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; background: transparent; color: var(--text-2); transition: all .15s; }
+    .type-btn.active.expense { background: #fef2f2; color: var(--expense-color); }
+    .type-btn.active.income  { background: #f0fdf4; color: var(--income-color); }
+
+    /* ── Amount Input ── */
+    .amount-wrap { position: relative; }
+    .amount-prefix { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 18px; font-weight: 600; color: var(--text-2); }
+    #txn-amount { padding-left: 30px; font-size: 24px; font-weight: 600; }
+
+    /* ── Home Screen ── */
+    .home-header { background: var(--primary); color: white; padding: 20px 16px 28px; }
+    .home-header h1 { font-size: 16px; font-weight: 500; opacity: .85; }
+    .home-period { font-size: 13px; opacity: .7; margin-top: 2px; }
+    .summary-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 0 12px; margin-top: -20px; margin-bottom: 8px; }
+    .summary-card { background: var(--surface); border-radius: var(--radius); padding: 12px 10px; box-shadow: var(--shadow); text-align: center; }
+    .summary-card .s-label { font-size: 11px; color: var(--text-2); margin-bottom: 4px; }
+    .summary-card .s-amount { font-size: 15px; font-weight: 700; }
+    .s-amount.income  { color: var(--income-color); }
+    .s-amount.expense { color: var(--expense-color); }
+    .balance-amount.positive { color: var(--income-color); }
+    .balance-amount.negative { color: var(--expense-color); }
+    .section-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 6px; }
+    .section-title { font-size: 14px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .5px; }
+
+    /* ── Transaction Cards ── */
+    .txn-date-group { padding: 0 12px; }
+    .txn-date-label { font-size: 12px; font-weight: 600; color: var(--text-2); padding: 8px 0 4px; text-transform: uppercase; letter-spacing: .5px; }
+    .txn-card { background: var(--surface); border-radius: var(--radius-sm); padding: 12px; display: flex; align-items: center; gap: 12px; margin-bottom: 6px; box-shadow: var(--shadow); cursor: pointer; }
+    .txn-card:active { opacity: .8; }
+    .txn-icon { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+    .txn-info { flex: 1; min-width: 0; }
+    .txn-cat  { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .txn-sub  { font-size: 12px; color: var(--text-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .txn-amount { font-size: 15px; font-weight: 700; flex-shrink: 0; }
+    .txn-amount.income   { color: var(--income-color); }
+    .txn-amount.expense  { color: var(--expense-color); }
+    .txn-amount.transfer { color: var(--transfer-color); }
+    .empty-state { text-align: center; color: var(--text-3); padding: 40px 20px; font-size: 14px; line-height: 1.6; }
+
+    /* ── Reports Screen ── */
+    .reports-header { background: var(--primary); color: white; padding: 20px 16px 16px; }
+    .reports-header h2 { font-size: 16px; font-weight: 500; margin-bottom: 12px; }
+    .reports-total { font-size: 32px; font-weight: 700; }
+    .reports-total-label { font-size: 13px; opacity: .8; }
+    .period-select { background: rgba(255,255,255,.2); color: white; border: 1px solid rgba(255,255,255,.4); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 14px; margin-top: 8px; }
+    .period-select option { color: var(--text); background: var(--surface); }
+    .reports-actions { display: flex; justify-content: flex-end; padding: 8px 16px 0; }
+    .cat-row { background: var(--surface); border-radius: var(--radius-sm); margin: 4px 12px; box-shadow: var(--shadow); overflow: hidden; cursor: pointer; }
+    .cat-row-main { display: flex; align-items: center; gap: 10px; padding: 12px; }
+    .cat-icon-chip { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .cat-row-info { flex: 1; min-width: 0; }
+    .cat-row-name { font-size: 14px; font-weight: 500; }
+    .cat-bar-wrap { height: 4px; background: var(--bg); border-radius: 2px; margin-top: 6px; }
+    .cat-bar { height: 100%; background: var(--primary); border-radius: 2px; transition: width .3s; }
+    .cat-row-right { text-align: right; flex-shrink: 0; }
+    .cat-amount { font-size: 14px; font-weight: 600; }
+    .cat-pct    { font-size: 11px; color: var(--text-2); }
+    .cat-chevron { font-size: 11px; color: var(--text-3); transition: transform .2s; margin-top: 2px; }
+    .cat-row.expanded .cat-chevron { transform: rotate(90deg); }
+    .subcat-list { display: none; border-top: 1px solid var(--border); }
+    .subcat-list.visible { display: block; }
+    .subcat-row { display: flex; align-items: center; padding: 9px 12px 9px 62px; border-bottom: 1px solid var(--bg); }
+    .subcat-name   { flex: 1; font-size: 13px; color: var(--text-2); }
+    .subcat-amount { font-size: 13px; font-weight: 500; margin-right: 8px; }
+    .subcat-pct    { font-size: 11px; color: var(--text-3); width: 30px; text-align: right; }
+    /* Budget bars in reports */
+    .budget-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+    .budget-label { font-size: 10px; color: var(--text-2); min-width: 60px; }
+    .budget-track { flex: 1; height: 3px; background: var(--bg); border-radius: 2px; }
+    .budget-fill  { height: 100%; background: var(--primary); border-radius: 2px; transition: width .3s; }
+    .budget-fill.over { background: var(--danger); }
+    .budget-pct { font-size: 10px; color: var(--text-2); min-width: 28px; text-align: right; }
+    /* Budget manager */
+    #budget-section { padding: 12px; }
+    #budget-section .section-title { margin-bottom: 10px; }
+    .budget-edit-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .budget-cat-label { flex: 1; font-size: 14px; }
+    .budget-input { width: 100px; flex-shrink: 0; padding: 8px 10px; font-size: 14px; }
+
+    /* ── Accounts Screen ── */
+    .accounts-header { background: var(--primary); color: white; padding: 20px 16px 28px; }
+    .accounts-header h2 { font-size: 16px; font-weight: 500; }
+    .net-worth { font-size: 32px; font-weight: 700; margin-top: 6px; }
+    .account-card { background: var(--surface); border-radius: var(--radius-sm); padding: 14px 16px; display: flex; align-items: center; gap: 14px; margin: 4px 12px; box-shadow: var(--shadow); }
+    .acc-icon  { font-size: 28px; }
+    .acc-info  { flex: 1; }
+    .acc-name  { font-size: 15px; font-weight: 500; }
+    .acc-type  { font-size: 12px; color: var(--text-2); }
+    .acc-balance { font-size: 16px; font-weight: 700; }
+    .acc-balance.positive { color: var(--income-color); }
+    .acc-balance.negative { color: var(--expense-color); }
+    .acc-actions { display: flex; gap: 8px; padding: 12px; }
+    .acc-icon-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .acc-icon-option { font-size: 24px; padding: 8px; border: 2px solid var(--border); border-radius: var(--radius-sm); background: none; cursor: pointer; }
+    .acc-icon-preview { font-size: 36px; text-align: center; display: block; margin: 8px 0; }
+
+    /* ── Settings Screen ── */
+    .settings-section { background: var(--surface); border-radius: var(--radius); margin: 12px; box-shadow: var(--shadow); overflow: hidden; }
+    .settings-section-title { padding: 12px 16px 6px; font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .5px; }
+    .settings-row { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border); gap: 12px; }
+    .settings-row:last-child { border-bottom: none; }
+    .settings-row label { margin: 0; flex: 1; font-size: 15px; color: var(--text); }
+    .settings-row input, .settings-row select { width: auto; flex-shrink: 0; max-width: 140px; padding: 6px 10px; font-size: 14px; }
+    .settings-row-full { flex-direction: column; align-items: stretch; gap: 6px; }
+    .settings-row-full label { font-size: 13px; }
+    .toggle { width: 46px; height: 26px; background: var(--border); border-radius: 13px; position: relative; cursor: pointer; border: none; transition: background .2s; flex-shrink: 0; }
+    .toggle::after { content: ''; position: absolute; width: 20px; height: 20px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: left .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    .toggle.on { background: var(--primary); }
+    .toggle.on::after { left: 23px; }
+
+    /* ── Voice Sheet ── */
+    .voice-mic-area { display: flex; flex-direction: column; align-items: center; padding: 20px 0; }
+    #voice-mic-btn { width: 72px; height: 72px; border-radius: 50%; background: var(--primary); color: white; border: none; font-size: 28px; cursor: pointer; box-shadow: var(--shadow-lg); transition: transform .15s; }
+    #voice-mic-btn:active { transform: scale(.93); }
+    #voice-mic-btn.listening { animation: pulse 1.2s infinite; background: var(--danger); }
+    @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.4); } 50% { box-shadow: 0 0 0 16px rgba(220,38,38,0); } }
+    #voice-status { margin-top: 12px; font-size: 14px; color: var(--text-2); text-align: center; min-height: 20px; }
+    #voice-parsed-card { background: var(--bg); border-radius: var(--radius-sm); padding: 14px; margin-top: 12px; }
+    .parsed-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
+    .parsed-label { color: var(--text-2); }
+    .parsed-value { font-weight: 500; }
+    #voice-confirm-btn { margin-top: 14px; }
+
+    /* ── Scan Sheet ── */
+    .scan-actions { display: flex; gap: 10px; margin-bottom: 16px; }
+    #scan-preview-wrap { margin-bottom: 14px; text-align: center; }
+    #scan-preview-img  { max-width: 100%; max-height: 200px; border-radius: var(--radius-sm); object-fit: contain; }
+    #scan-status { font-size: 14px; color: var(--text-2); margin-bottom: 12px; text-align: center; }
+    #scan-fields  { display: none; }
+    #scan-use-btn { display: none; margin-top: 14px; }
+
+    /* ── Auto-Cat Sheet ── */
+    .autocat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+    .autocat-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 8px; border: 2px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; font-family: inherit; transition: all .15s; }
+    .autocat-btn.selected { border-color: var(--primary); background: var(--primary-light); }
+    .autocat-btn.suggested { border-color: var(--primary-dark); }
+    .autocat-icon { font-size: 22px; }
+    .autocat-name { font-size: 12px; color: var(--text); text-align: center; }
+
+    /* ── Multi-Txn Sheet ── */
+    .multi-txn-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .multi-txn-info { flex: 1; }
+    .multi-txn-type { font-size: 15px; font-weight: 700; display: block; }
+    .multi-txn-type.expense { color: var(--expense-color); }
+    .multi-txn-type.income  { color: var(--income-color); }
+    .multi-txn-cat  { font-size: 13px; color: var(--text-2); }
+    .multi-txn-note { font-size: 12px; color: var(--text-3); }
+
+    /* ── Merchant Map Sheet ── */
+    .merchant-row { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .merchant-info { flex: 1; }
+    .merchant-name { font-size: 14px; font-weight: 500; text-transform: capitalize; }
+    .merchant-cat  { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+
+    /* ── Toast ── */
+    #toast { position: fixed; bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px); left: 50%; transform: translateX(-50%) translateY(80px); background: #1f2937; color: white; padding: 10px 16px; border-radius: 24px; font-size: 14px; z-index: 300; display: flex; align-items: center; gap: 12px; white-space: nowrap; box-shadow: var(--shadow-lg); transition: transform .3s; pointer-events: none; }
+    #toast.show { transform: translateX(-50%) translateY(0); pointer-events: auto; }
+    #toast-undo { background: var(--primary-light); color: var(--primary-dark); border: none; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; display: none; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 0; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <!-- Screens -->
+  <div id="screens">
+
+    <!-- Home -->
+    <div id="home" class="screen active">
+      <div class="home-header">
+        <h1>Money Manager</h1>
+        <div class="home-period">This Month</div>
+      </div>
+      <div class="summary-cards">
+        <div class="summary-card">
+          <div class="s-label">Income</div>
+          <div class="s-amount income" id="home-income">₹0</div>
+        </div>
+        <div class="summary-card">
+          <div class="s-label">Spent</div>
+          <div class="s-amount expense" id="home-expense">₹0</div>
+        </div>
+        <div class="summary-card">
+          <div class="s-label">Balance</div>
+          <div class="s-amount balance-amount" id="home-balance">₹0</div>
+        </div>
+      </div>
+      <div class="section-header">
+        <span class="section-title">Recent</span>
+      </div>
+      <div id="home-txn-list"></div>
+    </div>
+
+    <!-- Transactions -->
+    <div id="transactions" class="screen">
+      <div style="padding:16px 16px 4px"><h2 style="font-size:18px;font-weight:700">All Transactions</h2></div>
+      <div id="all-txn-list"></div>
+    </div>
+
+    <!-- Reports -->
+    <div id="reports" class="screen">
+      <div class="reports-header">
+        <h2>Reports</h2>
+        <div class="reports-total-label">Total Spent</div>
+        <div class="reports-total" id="reports-total">₹0</div>
+        <select id="report-period" class="period-select">
+          <option value="month">This Month</option>
+          <option value="last">Last Month</option>
+          <option value="year">This Year</option>
+          <option value="all">All Time</option>
+        </select>
+      </div>
+      <div class="reports-actions">
+        <button id="expand-all-btn" class="btn-sm">Expand All</button>
+      </div>
+      <div id="cat-breakdown"></div>
+      <div id="budget-section"></div>
+    </div>
+
+    <!-- Accounts -->
+    <div id="accounts-screen" class="screen">
+      <div class="accounts-header">
+        <h2>Accounts</h2>
+        <div class="net-worth" id="net-worth">₹0</div>
+      </div>
+      <div class="acc-actions">
+        <button class="btn btn-primary" id="open-add-account-btn" style="flex:1">+ Add Account</button>
+        <button class="btn btn-outline" id="open-transfer-btn" onclick="openTransferSheet()" style="flex:1">⇄ Transfer</button>
+      </div>
+      <div id="accounts-list"></div>
+    </div>
+
+    <!-- Settings -->
+    <div id="settings" class="screen">
+      <div style="padding:16px 16px 4px"><h2 style="font-size:18px;font-weight:700">Settings</h2></div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Preferences</div>
+        <div class="settings-row">
+          <label for="settings-currency">Currency</label>
+          <select id="settings-currency">
+            <option value="₹">₹ INR</option>
+            <option value="$">$ USD</option>
+            <option value="€">€ EUR</option>
+            <option value="£">£ GBP</option>
+          </select>
+        </div>
+        <div class="settings-row">
+          <label for="settings-month-start">Month starts on</label>
+          <input id="settings-month-start" type="number" min="1" max="28" value="1" style="width:70px">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Voice</div>
+        <div class="settings-row">
+          <label for="voice-lang">Voice Language</label>
+          <select id="voice-lang">
+            <option value="en-IN">English (India)</option>
+            <option value="en-US">English (US)</option>
+            <option value="hi-IN">Hindi</option>
+          </select>
+        </div>
+        <div class="settings-row">
+          <label>Speak Confirmation</label>
+          <button id="toggle-readback" class="toggle on"></button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Smart Voice (Claude AI)</div>
+        <div class="settings-row">
+          <label>Enable Claude AI</label>
+          <button id="toggle-claude" class="toggle"></button>
+        </div>
+        <div class="settings-row settings-row-full">
+          <label for="claude-api-key">Claude API Key</label>
+          <input id="claude-api-key" type="password" placeholder="sk-ant-api03-…">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Data</div>
+        <div class="settings-row" style="cursor:pointer" onclick="openMerchantMap()">
+          <label id="open-merchant-map-btn" style="cursor:pointer">Merchant Rules</label>
+          <span style="color:var(--text-3)">›</span>
+        </div>
+        <div class="settings-row">
+          <button class="btn btn-outline" id="export-btn" style="width:auto;padding:8px 16px;font-size:14px">Export JSON</button>
+          <button class="btn btn-danger"  id="clear-btn"  style="width:auto;padding:8px 16px;font-size:14px;margin-left:8px">Clear Data</button>
+        </div>
+      </div>
+
+      <div style="text-align:center;padding:20px;font-size:12px;color:var(--text-3)">
+        Money Manager PWA · All data stored on this device
+      </div>
+    </div>
+
+  </div><!-- /screens -->
+
+  <!-- Bottom Nav -->
+  <nav id="bottom-nav">
+    <button class="nav-btn active" data-tab="home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+      Home
+    </button>
+    <button class="nav-btn" data-tab="transactions">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Transactions
+    </button>
+    <button class="nav-btn" data-tab="reports">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Reports
+    </button>
+    <button class="nav-btn" data-tab="accounts-screen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+      Accounts
+    </button>
+    <button class="nav-btn" data-tab="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Settings
+    </button>
+  </nav>
+</div><!-- /app -->
+
+<!-- FAB -->
+<div id="fab-container">
+  <div id="fab-menu">
+    <button class="fab-mini" id="fab-voice"><span class="icon">🎤</span> Voice</button>
+    <button class="fab-mini" id="fab-scan"><span class="icon">📷</span> Scan</button>
+    <button class="fab-mini" id="fab-add"><span class="icon">✏️</span> Manual</button>
+  </div>
+  <button class="fab" id="fab-main">+</button>
+</div>
+
+<!-- ── Overlays ── -->
+
+<!-- Add Transaction -->
+<div id="add-sheet" class="overlay-bg">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Add Transaction</div>
+    <div class="type-toggle">
+      <button id="txn-type-expense" class="type-btn active expense">Expense</button>
+      <button id="txn-type-income"  class="type-btn income">Income</button>
+    </div>
+    <div class="form-group">
+      <label>Amount</label>
+      <div class="amount-wrap">
+        <span class="amount-prefix">₹</span>
+        <input id="txn-amount" type="number" inputmode="decimal" placeholder="0" min="0" step="any">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Category</label>
+        <select id="txn-category"><option value="">Select category</option></select>
+      </div>
+      <div class="form-group">
+        <label>Sub-Category</label>
+        <select id="txn-subcategory"><option value="">None</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Account</label>
+        <select id="txn-account"></select>
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input id="txn-date" type="date">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Merchant</label>
+      <input id="txn-merchant" type="text" placeholder="e.g. Swiggy">
+    </div>
+    <div class="form-group">
+      <label>Note</label>
+      <input id="txn-note" type="text" placeholder="Optional note">
+    </div>
+    <div id="receipt-preview-wrap" style="display:none;margin-bottom:12px">
+      <img id="receipt-preview" style="max-width:100%;max-height:140px;border-radius:8px;object-fit:contain">
+    </div>
+    <button id="save-txn-btn" class="btn btn-primary">Save</button>
+  </div>
+</div>
+
+<!-- Voice Sheet -->
+<div id="voice-sheet" class="overlay-bg">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Voice Entry</div>
+    <div class="voice-mic-area">
+      <button id="voice-mic-btn">🎤</button>
+      <div id="voice-status">Tap the mic to start</div>
+    </div>
+    <div id="voice-parsed-card" style="display:none"></div>
+    <button id="voice-confirm-btn" class="btn btn-primary" style="display:none;margin-top:14px">Save Transaction</button>
+  </div>
+</div>
+
+<!-- Scan Sheet -->
+<div id="scan-sheet" class="overlay-bg">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Scan Receipt</div>
+    <div class="scan-actions">
+      <button class="btn btn-primary" id="scan-camera-btn" style="flex:1">📷 Camera</button>
+      <button class="btn btn-outline" id="scan-file-btn"   style="flex:1">🖼️ Gallery</button>
+    </div>
+    <input id="scan-camera-input" type="file" accept="image/*" capture="environment" style="display:none">
+    <input id="scan-file-input"   type="file" accept="image/*" style="display:none">
+    <div id="scan-preview-wrap" style="display:none">
+      <img id="scan-preview-img" alt="Receipt preview">
+    </div>
+    <div id="scan-status">Take a photo or upload a bill</div>
+    <div id="scan-fields">
+      <div class="form-group"><label>Amount</label><input id="scan-amount" type="number" inputmode="decimal" placeholder="0"></div>
+      <div class="form-group"><label>Merchant</label><input id="scan-merchant" type="text" placeholder="Store name"></div>
+      <div class="form-group"><label>Date</label><input id="scan-date" type="date"></div>
+    </div>
+    <button id="scan-use-btn" class="btn btn-primary">Use This Data</button>
+  </div>
+</div>
+
+<!-- Auto-Cat Sheet -->
+<div id="autocat-sheet" class="overlay-bg">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Choose Category</div>
+    <p style="font-size:14px;color:var(--text-2);margin-bottom:14px">What is <strong id="autocat-merchant"></strong> usually for?</p>
+    <div class="autocat-grid" id="autocat-grid"></div>
+    <button id="autocat-confirm-btn" class="btn btn-primary">Create & Save</button>
+  </div>
+</div>
+
+<!-- Multi-Transaction Sheet -->
+<div id="multi-txn-sheet" class="overlay-bg">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Multiple Transactions Found</div>
+    <div id="multi-txn-list"></div>
+    <div class="btn-row">
+      <button id="multi-save-all-btn" class="btn btn-primary">Save All</button>
+      <button id="multi-review-btn"   class="btn btn-outline">Review Each</button>
+    </div>
+  </div>
+</div>
+
+<!-- Account Sheet -->
+<div id="account-sheet" class="overlay-bg">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Add Account</div>
+    <div class="form-group">
+      <label>Icon</label>
+      <div class="acc-icon-grid">
+        <button class="acc-icon-option">💵</button>
+        <button class="acc-icon-option">🏦</button>
+        <button class="acc-icon-option">💳</button>
+        <button class="acc-icon-option">📱</button>
+        <button class="acc-icon-option">🏧</button>
+        <button class="acc-icon-option">💰</button>
+      </div>
+      <span class="acc-icon-preview" id="acc-icon-preview">🏦</span>
+    </div>
+    <div class="form-group">
+      <label>Account Name</label>
+      <input id="account-name" type="text" placeholder="e.g. HDFC Savings">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Type</label>
+        <select id="account-type">
+          <option>Savings</option>
+          <option>Checking</option>
+          <option>Cash</option>
+          <option>Credit Card</option>
+          <option>Loan</option>
+          <option>Investment</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Opening Balance</label>
+        <input id="account-balance" type="number" inputmode="decimal" placeholder="0">
+      </div>
+    </div>
+    <button id="save-account-btn" class="btn btn-primary">Add Account</button>
+  </div>
+</div>
+
+<!-- Transfer Sheet -->
+<div id="transfer-sheet" class="overlay-bg">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Transfer</div>
+    <div class="form-group">
+      <label>From Account</label>
+      <select id="transfer-from"></select>
+    </div>
+    <div class="form-group">
+      <label>To Account</label>
+      <select id="transfer-to"></select>
+    </div>
+    <div class="form-group">
+      <label>Amount</label>
+      <div class="amount-wrap">
+        <span class="amount-prefix">₹</span>
+        <input id="transfer-amount" type="number" inputmode="decimal" placeholder="0" style="padding-left:30px;font-size:24px;font-weight:600">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Date</label>
+        <input id="transfer-date" type="date">
+      </div>
+      <div class="form-group">
+        <label>Note</label>
+        <input id="transfer-note" type="text" placeholder="Optional">
+      </div>
+    </div>
+    <button id="save-transfer-btn" class="btn btn-primary">Transfer</button>
+  </div>
+</div>
+
+<!-- Merchant Map Sheet -->
+<div id="merchant-sheet" class="overlay-bg">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Merchant Rules</div>
+    <p style="font-size:13px;color:var(--text-2);margin-bottom:14px">Merchants you've taught the app to recognise.</p>
+    <div id="merchant-map-list"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast">
+  <span id="toast-msg"></span>
+  <button id="toast-undo">UNDO</button>
+</div>
+
+<script src="/dexie.min.js"></script>
+<script src="database.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
