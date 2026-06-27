@@ -1200,6 +1200,11 @@ function startListening() {
     if (text) processVoiceText(text, 1.0);
     return;
   }
+  if (!window.isSecureContext) {
+    document.getElementById('voice-status').textContent =
+      'Microphone requires HTTPS. Open the app over https:// or from localhost.';
+    return;
+  }
   state.recognition = new SR();
   state.recognition.lang            = document.getElementById('voice-lang')?.value || 'en-IN';
   state.recognition.interimResults  = false;
@@ -1218,10 +1223,14 @@ function startListening() {
   };
   state.recognition.onerror = e => {
     stopListening();
-    document.getElementById('voice-status').textContent =
-      e.error === 'no-speech' ? "Didn't catch that. Try again." :
-      e.error === 'network'   ? 'Voice unavailable. Type instead.' :
-                                'Could not hear clearly. Try again.';
+    const msg =
+      e.error === 'no-speech'            ? "Didn't catch that. Try again." :
+      e.error === 'network'              ? 'Voice unavailable offline. Type instead.' :
+      e.error === 'not-allowed'          ? 'Microphone access denied. Check browser permissions.' :
+      e.error === 'audio-capture'        ? 'No microphone found or blocked by the system.' :
+      e.error === 'service-not-allowed'  ? 'Speech service not allowed on this page.' :
+                                           `Voice error: ${e.error}. Try again.`;
+    document.getElementById('voice-status').textContent = msg;
   };
   state.recognition.onend = () => {
     state.listening = false;
