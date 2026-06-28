@@ -1,10 +1,10 @@
-const CACHE_NAME = 'money-manager-v1';
+const CACHE_NAME = 'money-manager-v2';
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/app.js',
-  '/database.js',
-  '/dexie.min.js',
+  './',
+  './index.html',
+  './app.js',
+  './database.js',
+  './dexie.min.js',
 ];
 
 self.addEventListener('install', e => {
@@ -23,6 +23,7 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.url.includes('api.anthropic.com')) return;
+  if (e.request.url.includes('generativelanguage.googleapis.com')) return;
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );

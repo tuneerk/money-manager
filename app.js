@@ -127,7 +127,7 @@ async function init() {
   state.readbackEnabled = readback?.value ?? true;
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
   await refreshTxnList();
