@@ -92,6 +92,10 @@ const state = {
   editingTxnId:     null,
   editingTxnOld:    null,
 
+  catDetailName:      null,
+  catDetailColor:     '#FF6060',
+  catDetailSubFilter: null,
+
   voiceParsed:      null,
   recognition:      null,
   listening:        false,
@@ -892,8 +896,9 @@ async function refreshReports() {
         <div class="budget-track"><div class="budget-fill ${budgetPct >= 100 ? 'over' : ''}" style="width:${budgetPct}%"></div></div>
         <span class="budget-pct">${budgetPct}%</span>
       </div>` : '';
+    const safeN = catName.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
     return `
-      <div class="stat-cat-row">
+      <div class="stat-cat-row" onclick="openCatDetail('${safeN}','${color}')">
         <div class="stat-cat-dot" style="background:${color}"></div>
         <div class="stat-cat-info">
           <div class="stat-cat-name">${catName}</div>
@@ -955,6 +960,144 @@ async function renderBudgetManager(cats, budgetByCatName, catMap) {
                onchange="saveBudget(${c.id}, this.value)">
       </div>`;
     }).join('');
+}
+
+// ─── Category Detail ─────────────────────────────────────────────────────────
+async function openCatDetail(catName, color) {
+  state.catDetailName      = catName;
+  state.catDetailColor     = color;
+  state.catDetailSubFilter = null;
+  await renderCatDetail();
+  openOverlay('cat-detail-sheet');
+}
+
+async function renderCatDetail(skipChart = false) {
+  const { start, end } = getNavPeriod();
+  const catName = state.catDetailName;
+  const color   = state.catDetailColor;
+  const meta    = getCatMeta(catName);
+
+  document.getElementById('cd-icon').textContent   = meta.icon;
+  document.getElementById('cd-name').textContent   = catName;
+  document.getElementById('cd-period').textContent = monthLabel();
+
+  const allTxns = await db.transactions.where('date').between(start, end, true, true).toArray();
+  const catTxns = allTxns.filter(t => t.type === state.statsTab && t.categoryName === catName);
+  const total   = catTxns.reduce((s, t) => s + t.amount, 0);
+  document.getElementById('cd-total').textContent = `${state.currency}${fmt(total)}`;
+
+  // Subcategory breakdown
+  const subMap = {};
+  for (const t of catTxns) {
+    const s = t.subcategoryName || '';
+    if (s) subMap[s] = (subMap[s] || 0) + t.amount;
+  }
+  const subSorted = Object.entries(subMap).sort((a, b) => b[1] - a[1]);
+
+  const subsEl = document.getElementById('cd-subs');
+  if (subSorted.length > 0) {
+    subsEl.innerHTML =
+      `<div class="cd-sub-row${!state.catDetailSubFilter ? ' sel' : ''}" onclick="setCatDetailSub(null)">
+        <span class="cd-sub-name">All</span>
+        <span class="cd-sub-pct">100%</span>
+        <span class="cd-sub-amt">${state.currency}${fmt(total)}</span>
+      </div>` +
+      subSorted.map(([sub, amt]) => {
+        const pct  = total > 0 ? Math.round(amt / total * 100) : 0;
+        const safe = sub.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+        return `<div class="cd-sub-row${state.catDetailSubFilter === sub ? ' sel' : ''}" onclick="setCatDetailSub(this.dataset.s)" data-s="${safe}">
+          <span class="cd-sub-name">${sub}</span>
+          <span class="cd-sub-pct">${pct}%</span>
+          <span class="cd-sub-amt">${state.currency}${fmt(amt)}</span>
+        </div>`;
+      }).join('');
+  } else {
+    subsEl.innerHTML = '';
+  }
+
+  if (!skipChart) await renderCatDetailChart(catName, color);
+
+  // Transaction list filtered by subcategory
+  const sub = state.catDetailSubFilter;
+  const displayTxns = sub
+    ? catTxns.filter(t => t.subcategoryName === sub)
+    : catTxns;
+  displayTxns.sort((a, b) => b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt);
+
+  document.getElementById('cd-txns').innerHTML = displayTxns.length
+    ? renderDayGroups(displayTxns)
+    : '<p class="empty-state">No transactions this period.</p>';
+}
+
+async function renderCatDetailChart(catName, color) {
+  const now    = new Date();
+  const labels = [];
+  const totals = [];
+
+  for (let i = 7; i >= 0; i--) {
+    const d  = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y  = d.getFullYear(), m = d.getMonth();
+    const mm = String(m + 1).padStart(2, '0');
+    const ld = new Date(y, m + 1, 0).getDate();
+    const txns = await db.transactions.where('date')
+      .between(`${y}-${mm}-01`, `${y}-${mm}-${String(ld).padStart(2,'0')}`, true, true)
+      .toArray();
+    totals.push(txns.filter(t => t.type === state.statsTab && t.categoryName === catName)
+      .reduce((s, t) => s + t.amount, 0));
+    labels.push(MONTH_NAMES[m].slice(0, 3));
+  }
+
+  const max = Math.max(...totals, 1);
+  const W = 320, H = 110, PX = 26, PY = 8, BOT = 18;
+  const cw = W - PX * 2, ch = H - PY - BOT;
+  const n  = totals.length;
+  const pts = totals.map((v, i) => ({
+    x: PX + (i / (n - 1)) * cw,
+    y: PY + ch - (v / max) * ch,
+  }));
+
+  const grids = [0.5, 1].map(f => {
+    const y = PY + ch - f * ch;
+    return `<line x1="${PX}" y1="${y}" x2="${W-PX}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
+      <text x="${PX-3}" y="${y+3}" text-anchor="end" fill="var(--text-3)" font-size="8">${fmtShort(f * max)}</text>`;
+  }).join('');
+
+  const line = pts.map(p => `${p.x},${p.y}`).join(' ');
+  const area = `M${pts[0].x},${PY+ch} L${pts.map(p=>`${p.x},${p.y}`).join(' L')} L${pts[n-1].x},${PY+ch} Z`;
+  const dots = pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="${color}" stroke="var(--bg)" stroke-width="1.5"/>`).join('');
+  const lbls = labels.map((l,i) => `<text x="${pts[i].x}" y="${H-1}" text-anchor="middle" fill="var(--text-3)" font-size="9">${l}</text>`).join('');
+
+  document.getElementById('cd-chart').innerHTML = `
+    <defs>
+      <linearGradient id="cdGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    ${grids}
+    <path d="${area}" fill="url(#cdGrad)"/>
+    <polyline points="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}
+    ${lbls}`;
+}
+
+async function setCatDetailSub(sub) {
+  state.catDetailSubFilter = sub || null;
+  await renderCatDetail(true);
+}
+
+async function catDetailNavPrev() {
+  if (state.navMonth === 0) { state.navMonth = 11; state.navYear--; }
+  else state.navMonth--;
+  state.catDetailSubFilter = null;
+  await renderCatDetail();
+}
+
+async function catDetailNavNext() {
+  if (state.navMonth === 11) { state.navMonth = 0; state.navYear++; }
+  else state.navMonth++;
+  state.catDetailSubFilter = null;
+  await renderCatDetail();
 }
 
 async function saveBudget(categoryId, value) {

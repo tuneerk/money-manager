@@ -142,7 +142,7 @@
     #pie-svg { overflow: visible; }
 
     /* ── Cat List (stats) ── */
-    .stat-cat-row { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,.04); }
+    .stat-cat-row { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; }
     .stat-cat-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .stat-cat-info { flex: 1; min-width: 0; }
     .stat-cat-name { font-size: 14px; font-weight: 500; }
@@ -151,6 +151,25 @@
     .stat-cat-right { text-align: right; flex-shrink: 0; }
     .stat-cat-amt { font-size: 14px; font-weight: 600; }
     .stat-pct-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-top: 2px; color: white; }
+
+    /* ── Category Detail Sheet ── */
+    .sheet-page { border-radius: 0; max-height: 100vh; height: 100vh; padding: 0; }
+    .cd-hdr { display: flex; align-items: center; padding: 48px 16px 12px; gap: 8px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .cd-back { background: none; border: none; color: var(--text); font-size: 26px; line-height: 1; cursor: pointer; padding: 2px 10px 2px 0; }
+    .cd-title { font-size: 16px; font-weight: 700; flex: 1; display: flex; align-items: center; gap: 6px; }
+    .cd-mnav { display: flex; align-items: center; gap: 4px; }
+    .cd-mnav button { background: none; border: none; color: var(--text-2); font-size: 20px; cursor: pointer; padding: 4px 6px; }
+    .cd-mnav span { font-size: 13px; color: var(--text-2); white-space: nowrap; min-width: 68px; text-align: center; }
+    .cd-body { overflow-y: auto; height: calc(100vh - 85px); }
+    .cd-total-wrap { padding: 14px 20px 10px; }
+    .cd-total-label { font-size: 12px; color: var(--text-2); margin-bottom: 2px; }
+    .cd-total-amt { font-size: 30px; font-weight: 700; }
+    .cd-sub-row { display: flex; align-items: center; padding: 11px 20px; border-bottom: 1px solid var(--border); cursor: pointer; gap: 10px; }
+    .cd-sub-row.sel { background: rgba(139,0,0,.4); }
+    .cd-sub-name { flex: 1; font-size: 14px; }
+    .cd-sub-pct { font-size: 13px; color: var(--text-2); min-width: 38px; text-align: right; }
+    .cd-sub-amt { font-size: 14px; font-weight: 600; min-width: 80px; text-align: right; }
+    .cd-chart-wrap { padding: 14px 8px 4px; }
 
     /* ── Budget section ── */
     #budget-section { padding: 16px 20px 24px; margin-top: 8px; border-top: 1px solid var(--border); }
@@ -550,6 +569,35 @@
       <div class="form-field"><div class="field-label">Date</div><input id="scan-date" class="field-input" type="date"></div>
     </div>
     <button id="scan-use-btn" class="btn btn-primary">Use This Data</button>
+  </div>
+</div>
+
+<!-- Category Detail Sheet -->
+<div id="cat-detail-sheet" class="overlay-bg">
+  <div class="sheet sheet-page">
+    <div class="cd-hdr">
+      <button class="cd-back" onclick="closeOverlay('cat-detail-sheet')">‹</button>
+      <div class="cd-title">
+        <span id="cd-icon"></span>
+        <span id="cd-name"></span>
+      </div>
+      <div class="cd-mnav">
+        <button onclick="catDetailNavPrev()">‹</button>
+        <span id="cd-period"></span>
+        <button onclick="catDetailNavNext()">›</button>
+      </div>
+    </div>
+    <div class="cd-body">
+      <div class="cd-total-wrap">
+        <div class="cd-total-label">Total Balance</div>
+        <div id="cd-total" class="cd-total-amt"></div>
+      </div>
+      <div id="cd-subs"></div>
+      <div class="cd-chart-wrap">
+        <svg id="cd-chart" width="100%" viewBox="0 0 320 110" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div id="cd-txns" style="padding-bottom:24px"></div>
+    </div>
   </div>
 </div>
 
