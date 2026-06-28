@@ -307,8 +307,8 @@
     .merchant-cat  { font-size: 12px; color: var(--text-2); margin-top: 2px; }
 
     /* ── Toast ── */
-    #toast { position: fixed; bottom: calc(var(--nav-h) + var(--safe-bottom) + 72px); left: 50%; transform: translateX(-50%) translateY(100px); background: var(--surface2); color: var(--text); border: 1px solid var(--border); padding: 10px 18px; border-radius: 24px; font-size: 14px; z-index: 300; display: flex; align-items: center; gap: 12px; white-space: nowrap; box-shadow: 0 4px 20px rgba(0,0,0,.4); transition: transform .3s; pointer-events: none; cursor: pointer; }
-    #toast.show { transform: translateX(-50%) translateY(0); pointer-events: auto; }
+    #toast { position: fixed; bottom: calc(var(--nav-h) + var(--safe-bottom) + 72px); left: 50%; transform: translateX(-50%) translateY(16px); opacity: 0; background: var(--surface2); color: var(--text); border: 1px solid var(--border); padding: 10px 18px; border-radius: 24px; font-size: 14px; z-index: 300; display: flex; align-items: center; gap: 12px; white-space: nowrap; box-shadow: 0 4px 20px rgba(0,0,0,.4); transition: transform .25s, opacity .25s; pointer-events: none; cursor: pointer; }
+    #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; pointer-events: auto; }
     #toast-undo { background: rgba(255,82,82,.2); color: var(--accent); border: none; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; display: none; }
   </style>
 </head>
