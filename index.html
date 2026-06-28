@@ -469,6 +469,10 @@
 <div id="add-sheet" class="overlay-bg">
   <div class="sheet">
     <div class="sheet-handle"></div>
+    <div style="display:flex;align-items:center;margin-bottom:14px">
+      <div id="add-sheet-title" style="font-size:17px;font-weight:700;flex:1">Add Transaction</div>
+      <button id="delete-txn-btn" onclick="deleteEditingTxn()" style="display:none;background:none;border:none;color:var(--expense);font-size:14px;font-weight:600;cursor:pointer;padding:4px 0 4px 12px">Delete</button>
+    </div>
     <div class="type-toggle-dark">
       <button id="txn-type-expense"  class="type-btn-dark active expense">Expense</button>
       <button id="txn-type-income"   class="type-btn-dark income">Income</button>

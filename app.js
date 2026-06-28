@@ -89,6 +89,9 @@ const state = {
   statsTab:         'expense',
   reportPeriod:     'month',
 
+  editingTxnId:     null,
+  editingTxnOld:    null,
+
   voiceParsed:      null,
   recognition:      null,
   listening:        false,
@@ -282,6 +285,7 @@ function openOverlay(id) {
 function closeOverlay(id) {
   document.getElementById(id).classList.remove('active');
   if (state.listening) stopListening();
+  if (id === 'add-sheet') { state.editingTxnId = null; state.editingTxnOld = null; }
 }
 
 // ─── Day-Grouped Transaction Render ─────────────────────────────────────────
@@ -328,8 +332,9 @@ function txnHTML(t) {
   const meta = getCatMeta(t.categoryName);
   const sign = t.type === 'income' ? '+' : t.type === 'transfer' ? '⇄' : '-';
   const cls  = t.type === 'income' ? 'income' : t.type === 'transfer' ? 'transfer' : 'expense';
+  const clickFn = t.type === 'transfer' ? `deleteTxnPrompt(${t.id})` : `openEditSheet(${t.id})`;
   return `
-    <div class="txn-row" onclick="deleteTxnPrompt(${t.id})">
+    <div class="txn-row" onclick="${clickFn}">
       <div class="txn-icon" style="background:${meta.darkBg}">${meta.icon}</div>
       <div class="txn-info">
         <div class="txn-cat">${t.categoryName || 'Uncategorised'}</div>
@@ -652,7 +657,9 @@ async function renderTotalView(container, all) {
 
 // ─── Add Transaction ────────────────────────────────────────────────────────
 async function openAddSheet(type = 'expense', prefill = {}) {
-  state.currentType = type;
+  state.currentType   = type;
+  state.editingTxnId  = null;
+  state.editingTxnOld = null;
 
   document.getElementById('txn-amount').value   = prefill.amount   || '';
   document.getElementById('txn-note').value     = prefill.note     || '';
@@ -665,6 +672,7 @@ async function openAddSheet(type = 'expense', prefill = {}) {
   const accounts = await db.accounts.toArray();
   const accSel = document.getElementById('txn-account');
   accSel.innerHTML = accounts.map(a => `<option value="${a.id}">${a.icon || ''} ${a.name}</option>`).join('');
+  if (prefill.accountId) accSel.value = String(prefill.accountId);
 
   if (prefill.receiptImage) {
     state.scanImageB64 = prefill.receiptImage;
@@ -675,7 +683,38 @@ async function openAddSheet(type = 'expense', prefill = {}) {
     state.scanImageB64 = null;
   }
 
+  document.getElementById('add-sheet-title').textContent    = 'Add Transaction';
+  document.getElementById('delete-txn-btn').style.display   = 'none';
+  document.getElementById('save-txn-btn').textContent       = 'Save';
+
   openOverlay('add-sheet');
+}
+
+async function openEditSheet(id) {
+  const txn = await db.transactions.get(id);
+  if (!txn) return;
+  await openAddSheet(txn.type, {
+    amount:          txn.amount,
+    note:            txn.note,
+    merchant:        txn.merchant,
+    date:            txn.date,
+    categoryName:    txn.categoryName,
+    subcategoryName: txn.subcategoryName,
+    accountId:       txn.accountId,
+    receiptImage:    txn.receiptImage,
+  });
+  state.editingTxnId  = id;
+  state.editingTxnOld = { amount: txn.amount, accountId: txn.accountId, type: txn.type };
+  document.getElementById('add-sheet-title').textContent  = 'Edit Transaction';
+  document.getElementById('delete-txn-btn').style.display = '';
+  document.getElementById('save-txn-btn').textContent     = 'Update';
+}
+
+async function deleteEditingTxn() {
+  if (!state.editingTxnId) return;
+  const id = state.editingTxnId;
+  closeOverlay('add-sheet');
+  await deleteTxnPrompt(id);
 }
 
 function setTxnType(type) {
@@ -710,7 +749,7 @@ async function loadSubcats(prefillSub) {
 }
 
 async function saveTransaction() {
-  if (state.currentType === 'transfer') { await saveTransferFromSheet(); return; }
+  if (state.currentType === 'transfer' && !state.editingTxnId) { await saveTransferFromSheet(); return; }
 
   const amountRaw = parseFloat(document.getElementById('txn-amount').value);
   if (!amountRaw || amountRaw <= 0) { showToast('Enter a valid amount'); return; }
@@ -723,7 +762,7 @@ async function saveTransaction() {
   const subName = subSel.selectedOptions[0]?.dataset.name || '';
   const accId   = parseInt(document.getElementById('txn-account').value) || null;
 
-  const txn = {
+  const fields = {
     type:            state.currentType,
     amount:          amountRaw,
     categoryId:      catId,
@@ -735,9 +774,34 @@ async function saveTransaction() {
     note:            document.getElementById('txn-note').value.trim(),
     merchant:        document.getElementById('txn-merchant').value.trim(),
     receiptImage:    state.scanImageB64 || null,
-    createdAt:       Date.now(),
   };
 
+  if (state.editingTxnId) {
+    const old = state.editingTxnOld;
+    if (old.accountId) {
+      const acc = await db.accounts.get(old.accountId);
+      if (acc) {
+        const reversal = old.type === 'income' ? -old.amount : old.amount;
+        await db.accounts.update(old.accountId, { balance: acc.balance + reversal });
+      }
+    }
+    if (accId) {
+      const acc = await db.accounts.get(accId);
+      if (acc) {
+        const delta = state.currentType === 'income' ? amountRaw : -amountRaw;
+        await db.accounts.update(accId, { balance: acc.balance + delta });
+      }
+    }
+    await db.transactions.update(state.editingTxnId, fields);
+    closeOverlay('add-sheet');
+    const activeScreen = document.querySelector('.screen.active')?.id;
+    if (activeScreen === 'transactions') await refreshTxnList();
+    if (activeScreen === 'reports')      await refreshReports();
+    showToast('Transaction updated');
+    return;
+  }
+
+  const txn = { ...fields, createdAt: Date.now() };
   const newId = await db.transactions.add(txn);
   state.lastTxnId        = newId;
   state.lastTxnAmount    = amountRaw;
