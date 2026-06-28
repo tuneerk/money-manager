@@ -96,6 +96,10 @@ const state = {
   catDetailColor:     '#FF6060',
   catDetailSubFilter: null,
 
+  statsTagFilter: '',
+  txnTagFilter:   '',
+  tagDetailName:  null,
+
   voiceParsed:      null,
   recognition:      null,
   listening:        false,
@@ -343,6 +347,7 @@ function txnHTML(t) {
       <div class="txn-info">
         <div class="txn-cat">${t.categoryName || 'Uncategorised'}</div>
         <div class="txn-sub">${t.note || t.merchant || t.subcategoryName || ''}</div>
+        ${t.tag ? `<span class="txn-tag-chip" data-tag="${t.tag.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" onclick="event.stopPropagation();openTagDetail(this.dataset.tag)">#${t.tag}</span>` : ''}
       </div>
       <div class="txn-amount ${cls}">${sign}${state.currency}${fmt(t.amount)}</div>
     </div>`;
@@ -360,12 +365,16 @@ async function refreshTxnList() {
   updateMonthLabels();
   const list = document.getElementById('all-txn-list');
 
+  const txnTagBar = document.getElementById('txn-tag-bar');
+
   if (state.txnViewTab === 'calendar') {
+    txnTagBar.style.display = 'none';
     await renderCalendarView(list);
     return;
   }
 
   if (state.txnViewTab === 'monthly') {
+    txnTagBar.style.display = 'none';
     await renderMonthlyYearView(list);
     return;
   }
@@ -374,17 +383,20 @@ async function refreshTxnList() {
   const all = await db.transactions.where('date').between(start, end, true, true).toArray();
   all.sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt));
 
+  await renderTagFilterBar('txn-tag-bar', state.txnTagFilter, 'setTxnTagFilter');
+
   if (state.txnViewTab === 'total') {
     await renderTotalView(list, all);
     return;
   }
 
-  if (all.length === 0) {
+  const display = state.txnTagFilter ? all.filter(t => t.tag === state.txnTagFilter) : all;
+  if (display.length === 0) {
     list.innerHTML = '<p class="empty-state">No transactions this month.</p>';
     return;
   }
 
-  list.innerHTML = renderDayGroups(all);
+  list.innerHTML = renderDayGroups(display);
 }
 
 // ─── Calendar View ────────────────────────────────────────────────────────────
@@ -663,6 +675,8 @@ async function openAddSheet(type = 'expense', prefill = {}) {
   document.getElementById('txn-note').value     = prefill.note     || '';
   document.getElementById('txn-merchant').value = prefill.merchant || '';
   document.getElementById('txn-date').value     = prefill.date     || new Date().toISOString().split('T')[0];
+  document.getElementById('txn-tag').value      = prefill.tag      || '';
+  loadTagSuggestions();
 
   setTxnType(type);
   await loadCategoryDropdown(prefill.categoryName, prefill.subcategoryName);
@@ -700,6 +714,7 @@ async function openEditSheet(id) {
     subcategoryName: txn.subcategoryName,
     accountId:       txn.accountId,
     receiptImage:    txn.receiptImage,
+    tag:             txn.tag,
   });
   state.editingTxnId  = id;
   state.editingTxnOld = { amount: txn.amount, accountId: txn.accountId, type: txn.type };
@@ -772,6 +787,7 @@ async function saveTransaction() {
     note:            document.getElementById('txn-note').value.trim(),
     merchant:        document.getElementById('txn-merchant').value.trim(),
     receiptImage:    state.scanImageB64 || null,
+    tag:             document.getElementById('txn-tag').value.trim() || null,
   };
 
   if (state.editingTxnId) {
@@ -853,8 +869,9 @@ async function refreshReports() {
     : await getPeriodRange(state.reportPeriod);
 
   const txns = await db.transactions.where('date').between(start, end, true, true).toArray();
-  const filtered = txns.filter(t => t.type === state.statsTab);
+  const filtered = txns.filter(t => t.type === state.statsTab && (!state.statsTagFilter || t.tag === state.statsTagFilter));
   const total = filtered.reduce((s, t) => s + t.amount, 0);
+  await renderTagFilterBar('stats-tag-bar', state.statsTagFilter, 'setStatsTagFilter');
   document.getElementById('reports-total').textContent = `${state.currency}${fmt(total)}`;
 
   const catMap = {};
@@ -1098,6 +1115,134 @@ async function catDetailNavNext() {
   else state.navMonth++;
   state.catDetailSubFilter = null;
   await renderCatDetail();
+}
+
+// ─── Tags ────────────────────────────────────────────────────────────────────
+async function getAllTags() {
+  try { return await db.transactions.orderBy('tag').uniqueKeys(); } catch { return []; }
+}
+
+async function loadTagSuggestions() {
+  const tags = await getAllTags();
+  document.getElementById('tag-suggestions').innerHTML =
+    tags.map(t => `<option value="${t.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"></option>`).join('');
+}
+
+async function renderTagFilterBar(barId, activeTag, setterFn) {
+  const tags = await getAllTags();
+  const bar  = document.getElementById(barId);
+  if (!bar) return;
+  if (tags.length === 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML =
+    `<span class="tag-filter-chip${!activeTag ? ' active' : ''}" data-fn="${setterFn}" data-tag="" onclick="handleTagChip(this)">All</span>` +
+    tags.map(t => {
+      const safe = t.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+      return `<span class="tag-filter-chip${activeTag === t ? ' active' : ''}" data-fn="${setterFn}" data-tag="${safe}" onclick="handleTagChip(this)">#${t}</span>`;
+    }).join('');
+}
+
+function handleTagChip(el) {
+  const tag = el.dataset.tag;
+  const fn  = el.dataset.fn;
+  if      (fn === 'setStatsTagFilter') setStatsTagFilter(tag);
+  else if (fn === 'setTxnTagFilter')   setTxnTagFilter(tag);
+}
+
+function setStatsTagFilter(tag) { state.statsTagFilter = tag; refreshReports(); }
+function setTxnTagFilter(tag)   { state.txnTagFilter   = tag; refreshTxnList(); }
+
+async function openTagDetail(tagName) {
+  state.tagDetailName = tagName;
+  await renderTagDetail();
+  openOverlay('tag-detail-sheet');
+}
+
+async function renderTagDetail(skipChart = false) {
+  const { start, end } = getNavPeriod();
+  const tagName = state.tagDetailName;
+
+  document.getElementById('td-name').textContent   = `#${tagName}`;
+  document.getElementById('td-period').textContent = monthLabel();
+
+  const allTxns = await db.transactions.where('date').between(start, end, true, true).toArray();
+  const tagTxns = allTxns.filter(t => t.tag === tagName && t.type !== 'transfer');
+  const total   = tagTxns.reduce((s, t) => s + t.amount, 0);
+  document.getElementById('td-total').textContent = `${state.currency}${fmt(total)}`;
+
+  // Category breakdown
+  const catMap = {};
+  for (const t of tagTxns) {
+    const c = t.categoryName || 'Uncategorised';
+    catMap[c] = (catMap[c] || 0) + t.amount;
+  }
+  const catSorted = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+  document.getElementById('td-cats').innerHTML = catSorted.length
+    ? catSorted.map(([cat, amt], idx) => {
+        const pct   = total > 0 ? Math.round(amt / total * 100) : 0;
+        const color = CHART_COLORS[idx % CHART_COLORS.length];
+        return `<div class="cd-sub-row">
+          <span class="cd-sub-name" style="display:flex;align-items:center;gap:6px">
+            <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block;flex-shrink:0"></span>${cat}
+          </span>
+          <span class="cd-sub-pct">${pct}%</span>
+          <span class="cd-sub-amt">${state.currency}${fmt(amt)}</span>
+        </div>`;
+      }).join('')
+    : '<p class="empty-state">No transactions this period.</p>';
+
+  if (!skipChart) await renderTagDetailChart(tagName);
+
+  const sorted = [...tagTxns].sort((a, b) => b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt);
+  document.getElementById('td-txns').innerHTML = sorted.length
+    ? renderDayGroups(sorted)
+    : '<p class="empty-state">No transactions this period.</p>';
+}
+
+async function renderTagDetailChart(tagName) {
+  const now = new Date();
+  const labels = [], totals = [];
+  for (let i = 7; i >= 0; i--) {
+    const d  = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y  = d.getFullYear(), m = d.getMonth();
+    const mm = String(m + 1).padStart(2, '0');
+    const ld = new Date(y, m + 1, 0).getDate();
+    const txns = await db.transactions.where('date')
+      .between(`${y}-${mm}-01`, `${y}-${mm}-${String(ld).padStart(2,'0')}`, true, true).toArray();
+    totals.push(txns.filter(t => t.tag === tagName && t.type !== 'transfer').reduce((s, t) => s + t.amount, 0));
+    labels.push(MONTH_NAMES[m].slice(0, 3));
+  }
+  const color = '#FF9800';
+  const max = Math.max(...totals, 1);
+  const W = 320, H = 110, PX = 26, PY = 8, BOT = 18;
+  const cw = W - PX * 2, ch = H - PY - BOT, n = totals.length;
+  const pts = totals.map((v, i) => ({ x: PX + (i / (n-1)) * cw, y: PY + ch - (v / max) * ch }));
+  const grids = [0.5, 1].map(f => {
+    const y = PY + ch - f * ch;
+    return `<line x1="${PX}" y1="${y}" x2="${W-PX}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
+      <text x="${PX-3}" y="${y+3}" text-anchor="end" fill="var(--text-3)" font-size="8">${fmtShort(f*max)}</text>`;
+  }).join('');
+  const line = pts.map(p => `${p.x},${p.y}`).join(' ');
+  const area = `M${pts[0].x},${PY+ch} L${pts.map(p=>`${p.x},${p.y}`).join(' L')} L${pts[n-1].x},${PY+ch} Z`;
+  const dots = pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="${color}" stroke="var(--bg)" stroke-width="1.5"/>`).join('');
+  const lbls = labels.map((l,i) => `<text x="${pts[i].x}" y="${H-1}" text-anchor="middle" fill="var(--text-3)" font-size="9">${l}</text>`).join('');
+  document.getElementById('td-chart').innerHTML = `
+    <defs><linearGradient id="tdGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${grids}<path d="${area}" fill="url(#tdGrad)"/>
+    <polyline points="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}${lbls}`;
+}
+
+async function tagDetailNavPrev() {
+  if (state.navMonth === 0) { state.navMonth = 11; state.navYear--; } else state.navMonth--;
+  await renderTagDetail();
+}
+async function tagDetailNavNext() {
+  if (state.navMonth === 11) { state.navMonth = 0; state.navYear++; } else state.navMonth++;
+  await renderTagDetail();
 }
 
 async function saveBudget(categoryId, value) {

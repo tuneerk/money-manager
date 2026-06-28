@@ -152,6 +152,13 @@
     .stat-cat-amt { font-size: 14px; font-weight: 600; }
     .stat-pct-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-top: 2px; color: white; }
 
+    /* ── Tag chips & filter bar ── */
+    .txn-tag-chip { display: inline-block; font-size: 10px; padding: 2px 8px; background: rgba(255,255,255,.1); border-radius: 8px; margin-top: 3px; cursor: pointer; color: var(--text-2); }
+    .tag-filter-bar { display: flex; gap: 8px; padding: 6px 16px 8px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); }
+    .tag-filter-bar::-webkit-scrollbar { display: none; }
+    .tag-filter-chip { flex-shrink: 0; font-size: 12px; padding: 5px 12px; border-radius: 16px; background: var(--surface2); color: var(--text-2); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; }
+    .tag-filter-chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+
     /* ── Category Detail Sheet ── */
     .sheet-page { border-radius: 0; max-height: 100vh; height: 100vh; padding: 0; }
     .cd-hdr { display: flex; align-items: center; padding: 48px 16px 12px; gap: 8px; border-bottom: 1px solid var(--border); background: var(--bg); }
@@ -323,6 +330,7 @@
         <button class="view-tab"        data-vtab="monthly"  onclick="setTxnView('monthly',this)">Monthly</button>
         <button class="view-tab"        data-vtab="total"    onclick="setTxnView('total',this)">Total</button>
       </div>
+      <div id="txn-tag-bar" class="tag-filter-bar" style="display:none"></div>
       <div id="all-txn-list"></div>
     </div>
 
@@ -351,6 +359,7 @@
           <option value="all">All Time</option>
         </select>
       </div>
+      <div id="stats-tag-bar" class="tag-filter-bar" style="display:none"></div>
       <div id="pie-wrap"><svg id="pie-svg" width="200" height="200" viewBox="0 0 200 200"></svg></div>
       <div id="cat-breakdown"></div>
     </div>
@@ -527,6 +536,11 @@
       <div class="field-label">Note</div>
       <input id="txn-note" class="field-input" type="text" placeholder="Optional note">
     </div>
+    <div class="form-field">
+      <div class="field-label">Tag</div>
+      <input id="txn-tag" class="field-input" type="text" placeholder="e.g. Pune trip" list="tag-suggestions" autocomplete="off">
+      <datalist id="tag-suggestions"></datalist>
+    </div>
     <div id="receipt-preview-wrap" style="display:none;margin-bottom:14px">
       <img id="receipt-preview" style="max-width:100%;max-height:140px;border-radius:10px;object-fit:contain">
     </div>
@@ -597,6 +611,32 @@
         <svg id="cd-chart" width="100%" viewBox="0 0 320 110" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
       <div id="cd-txns" style="padding-bottom:24px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Tag Detail Sheet -->
+<div id="tag-detail-sheet" class="overlay-bg">
+  <div class="sheet sheet-page">
+    <div class="cd-hdr">
+      <button class="cd-back" onclick="closeOverlay('tag-detail-sheet')">‹</button>
+      <div class="cd-title" id="td-name"></div>
+      <div class="cd-mnav">
+        <button onclick="tagDetailNavPrev()">‹</button>
+        <span id="td-period"></span>
+        <button onclick="tagDetailNavNext()">›</button>
+      </div>
+    </div>
+    <div class="cd-body">
+      <div class="cd-total-wrap">
+        <div class="cd-total-label">Total Balance</div>
+        <div id="td-total" class="cd-total-amt"></div>
+      </div>
+      <div id="td-cats"></div>
+      <div class="cd-chart-wrap">
+        <svg id="td-chart" width="100%" viewBox="0 0 320 110" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div id="td-txns" style="padding-bottom:24px"></div>
     </div>
   </div>
 </div>

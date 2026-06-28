@@ -10,6 +10,10 @@ db.version(1).stores({
   budgets:       '++id, categoryId',
 });
 
+db.version(2).stores({
+  transactions: '++id, type, categoryId, subcategoryId, accountId, date, merchant, createdAt, tag',
+});
+
 async function seedDefaults() {
   const catCount = await db.categories.count();
   if (catCount > 0) return;
