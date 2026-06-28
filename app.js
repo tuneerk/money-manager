@@ -92,6 +92,8 @@ const state = {
   editingTxnId:     null,
   editingTxnOld:    null,
 
+  multiTxnTotal:    0,
+
   catDetailName:      null,
   catDetailColor:     '#FF6060',
   catDetailSubFilter: null,
@@ -293,7 +295,13 @@ function openOverlay(id) {
 function closeOverlay(id) {
   document.getElementById(id).classList.remove('active');
   if (state.listening) stopListening();
-  if (id === 'add-sheet') { state.editingTxnId = null; state.editingTxnOld = null; }
+  if (id === 'add-sheet') {
+    state.editingTxnId  = null;
+    state.editingTxnOld = null;
+    state.pendingMultiTxns = [];
+    state.multiTxnTotal    = 0;
+    document.getElementById('multi-skip-btn').style.display = 'none';
+  }
 }
 
 // ─── Day-Grouped Transaction Render ─────────────────────────────────────────
@@ -832,6 +840,16 @@ async function saveTransaction() {
 
   closeOverlay('add-sheet');
   await refreshTxnList();
+
+  if (state.pendingMultiTxns.length > 0) {
+    const next = state.pendingMultiTxns.shift();
+    const idx  = state.multiTxnTotal - state.pendingMultiTxns.length;
+    showToast(`Transaction ${idx - 1} of ${state.multiTxnTotal} saved`);
+    await sleep(350);
+    await openMultiTxnStep(next, idx);
+    return;
+  }
+
   showToast(`${state.currentType === 'income' ? 'Income' : 'Expense'} saved`, true);
 }
 
@@ -1609,30 +1627,28 @@ async function processVoiceText(text, confidence = 1.0) {
       : await callClaudeVoice(text, scenario, confidence, ai.key, ai.model);
     if (aiResult) {
       if (aiResult.transactions?.length > 1) {
-        state.pendingMultiTxns = aiResult.transactions;
-        openMultiTxnConfirmSheet(aiResult.transactions);
         if (aiResult.confirmText) speakConfirmation(aiResult.confirmText);
+        closeOverlay('voice-sheet');
+        await startMultiTxnReview(aiResult.transactions);
         return;
       }
       state.voiceParsed = aiResult;
-      state.voiceMode   = 'parsed';
-      document.getElementById('voice-status').textContent = aiResult.amount ? 'Tap Save to continue' : '⚠️ Couldn\'t find an amount. Please verify.';
-      updateParsedUI(aiResult);
       speakConfirmation(buildConfirmText(aiResult));
+      closeOverlay('voice-sheet');
+      await openAddSheetFromParsed(aiResult);
       return;
     }
   }
 
-  // Fallback: local NLP (no key set, or Claude call failed)
+  // Fallback: local NLP (no key set, or AI call failed)
   const parsed  = parseVoiceInput(text);
   const catInfo = await matchCategory(parsed.merchant || text);
   parsed.categoryName    = catInfo?.[0] || null;
   parsed.subcategoryName = catInfo?.[1] || null;
   state.voiceParsed = parsed;
-  state.voiceMode   = 'parsed';
-  document.getElementById('voice-status').textContent = parsed.amount ? 'Tap Save to continue' : '⚠️ Couldn\'t find an amount. Please verify.';
-  updateParsedUI(parsed);
   speakConfirmation(buildConfirmText(parsed));
+  closeOverlay('voice-sheet');
+  await openAddSheetFromParsed(parsed);
 }
 
 function parseVoiceInput(text) {
@@ -1690,6 +1706,70 @@ async function confirmVoice() {
     amount:parsed.amount, merchant:parsed.merchant||'', date:parsed.date, note:parsed.note,
     categoryName:parsed.categoryName, subcategoryName:parsed.subcategoryName||'',
   });
+}
+
+async function openAddSheetFromParsed(parsed) {
+  if (!parsed.categoryName) {
+    state.voiceParsed = parsed;
+    openAutoCatSheet(parsed.merchant || parsed.raw || '');
+    return;
+  }
+  if (parsed.merchant) {
+    const existing = await db.merchantMap.where('merchant').equals(parsed.merchant.toLowerCase()).first();
+    if (!existing) await db.merchantMap.add({
+      merchant: parsed.merchant.toLowerCase(),
+      categoryId: null, subcategoryId: null,
+      categoryName: parsed.categoryName,
+      subcategoryName: parsed.subcategoryName || '',
+    });
+  }
+  await openAddSheet(parsed.type || 'expense', {
+    amount: parsed.amount, merchant: parsed.merchant || '',
+    date: parsed.date, note: parsed.note,
+    categoryName: parsed.categoryName, subcategoryName: parsed.subcategoryName || '',
+  });
+}
+
+async function startMultiTxnReview(txns) {
+  state.pendingMultiTxns = txns.slice(1);
+  state.multiTxnTotal    = txns.length;
+  await openMultiTxnStep(txns[0], 1);
+}
+
+async function openMultiTxnStep(txn, index) {
+  await openAddSheet(txn.type || 'expense', {
+    amount: txn.amount, merchant: txn.merchant || '',
+    date: txn.date, note: txn.note,
+    categoryName: txn.categoryName || '', subcategoryName: txn.subcategoryName || '',
+  });
+  document.getElementById('add-sheet-title').textContent = `Transaction ${index} of ${state.multiTxnTotal}`;
+  const remaining = state.multiTxnTotal - index;
+  const skipBtn   = document.getElementById('multi-skip-btn');
+  if (remaining > 0) {
+    document.getElementById('multi-skip-count').textContent = remaining;
+    skipBtn.style.display = 'block';
+  } else {
+    skipBtn.style.display = 'none';
+  }
+}
+
+async function saveRemainingMulti() {
+  const remaining = [...state.pendingMultiTxns];
+  state.pendingMultiTxns = [];
+  state.multiTxnTotal    = 0;
+  closeOverlay('add-sheet');
+  const now = Date.now();
+  await db.transactions.bulkAdd(remaining.map((t, i) => ({
+    type: t.type || 'expense', amount: t.amount,
+    categoryId: null, subcategoryId: null,
+    categoryName: t.categoryName || '', subcategoryName: t.subcategoryName || '',
+    accountId: null,
+    date: t.date || new Date().toISOString().split('T')[0],
+    note: t.note || '', merchant: t.merchant || '',
+    receiptImage: null, tag: null, createdAt: now + i,
+  })));
+  await refreshTxnList();
+  showToast(`${remaining.length} more transaction${remaining.length > 1 ? 's' : ''} saved`);
 }
 
 async function openAutoCatSheet(merchantName) {
