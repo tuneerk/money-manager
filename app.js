@@ -617,12 +617,6 @@ async function renderTotalView(container, all) {
           <div style="font-size:16px;font-weight:700;color:${balance>=0?'var(--income)':'var(--expense)'}">${state.currency}${fmt(Math.abs(balance))}</div>
         </div>
       </div>
-      <div style="background:var(--surface);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;cursor:pointer"
-           onclick="document.querySelector('[data-tab=reports]').click()">
-        <span style="font-size:20px;margin-right:10px">📋</span>
-        <span style="font-size:15px;font-weight:600;flex:1">Budget</span>
-        <span style="font-size:13px;color:var(--text-2)">Budget Setting ›</span>
-      </div>
       <div style="background:var(--surface);border-radius:12px;padding:14px 16px;margin-bottom:10px">
         <div style="display:flex;align-items:center;margin-bottom:10px">
           <span style="font-size:20px;margin-right:10px">💰</span>
@@ -884,11 +878,6 @@ async function refreshReports() {
   if (sorted.length === 0) {
     breakdown.innerHTML = '<p class="empty-state">No data in this period.</p>';
     renderPieChart([], 0);
-    if (state.statsTab === 'expense') {
-      renderBudgetManager(cats.filter(c => c.type === 'expense'), budgetByCatName, {});
-    } else {
-      document.getElementById('budget-section').innerHTML = '';
-    }
     return;
   }
 
@@ -918,11 +907,6 @@ async function refreshReports() {
       </div>`;
   }).join('');
 
-  if (state.statsTab === 'expense') {
-    renderBudgetManager(cats.filter(c => c.type === 'expense'), budgetByCatName, catMap);
-  } else {
-    document.getElementById('budget-section').innerHTML = '';
-  }
 }
 
 function renderPieChart(sorted, total) {
@@ -982,7 +966,6 @@ async function saveBudget(categoryId, value) {
     if (existing) await db.budgets.update(existing.id, { amount });
     else           await db.budgets.add({ categoryId, amount });
   }
-  await refreshReports();
 }
 
 // ─── Accounts ───────────────────────────────────────────────────────────────
@@ -994,18 +977,26 @@ async function refreshAccounts() {
   const list = document.getElementById('accounts-list');
   if (accounts.length === 0) {
     list.innerHTML = '<p class="empty-state">No accounts yet.</p>';
-    return;
+  } else {
+    const groups = groupAccounts(accounts);
+    let html = '';
+    for (const [groupName, items] of Object.entries(groups)) {
+      if (items.length === 0) continue;
+      const groupTotal = items.reduce((s, a) => s + (a.balance || 0), 0);
+      html += `<div class="acc-group-header"><span>${groupName}</span><span class="acc-group-total">${state.currency}${fmt(Math.abs(groupTotal))}</span></div>`;
+      html += items.map(a => accountRowHTML(a)).join('');
+    }
+    list.innerHTML = html;
   }
 
-  const groups = groupAccounts(accounts);
-  let html = '';
-  for (const [groupName, items] of Object.entries(groups)) {
-    if (items.length === 0) continue;
-    const groupTotal = items.reduce((s, a) => s + (a.balance || 0), 0);
-    html += `<div class="acc-group-header"><span>${groupName}</span><span class="acc-group-total">${state.currency}${fmt(Math.abs(groupTotal))}</span></div>`;
-    html += items.map(a => accountRowHTML(a)).join('');
+  const cats    = await db.categories.where('type').equals('expense').toArray();
+  const budgets = await db.budgets.toArray();
+  const budgetByCatName = {};
+  for (const b of budgets) {
+    const cat = cats.find(c => c.id === b.categoryId);
+    if (cat) budgetByCatName[cat.name] = b.amount;
   }
-  list.innerHTML = html;
+  renderBudgetManager(cats, budgetByCatName, {});
 }
 
 function accountRowHTML(a) {

@@ -153,7 +153,7 @@
     .stat-pct-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-top: 2px; color: white; }
 
     /* ── Budget section ── */
-    #budget-section { padding: 12px 20px; }
+    #budget-section { padding: 16px 20px 24px; margin-top: 8px; border-top: 1px solid var(--border); }
     .budget-edit-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     .budget-cat-label { flex: 1; font-size: 14px; }
     .budget-input { width: 100px; flex-shrink: 0; padding: 8px 10px; font-size: 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
@@ -334,7 +334,6 @@
       </div>
       <div id="pie-wrap"><svg id="pie-svg" width="200" height="200" viewBox="0 0 200 200"></svg></div>
       <div id="cat-breakdown"></div>
-      <div id="budget-section"></div>
     </div>
 
     <!-- Accounts -->
@@ -349,6 +348,7 @@
         <button class="btn btn-outline" onclick="openTransferSheet()" style="flex:1;padding:12px">⇄ Transfer</button>
       </div>
       <div id="accounts-list"></div>
+      <div id="budget-section"></div>
     </div>
 
     <!-- Settings -->
