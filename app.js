@@ -134,6 +134,21 @@ async function init() {
 
   await refreshTxnList();
   setupGlobalListeners();
+  _applyDynamicSafeTop();
+}
+
+function _applyDynamicSafeTop() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);pointer-events:none;visibility:hidden';
+  document.body.appendChild(probe);
+  requestAnimationFrame(() => {
+    const safeTop = probe.getBoundingClientRect().height || 0;
+    document.body.removeChild(probe);
+    if (safeTop > 0) {
+      const padTop = (safeTop + 24) + 'px';
+      document.querySelectorAll('.cd-hdr').forEach(el => el.style.paddingTop = padTop);
+    }
+  });
 }
 
 function setupGlobalListeners() {
