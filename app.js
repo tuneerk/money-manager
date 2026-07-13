@@ -2714,4 +2714,25 @@ async function undoLastTxn() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ── PWA Install ──
+let _installPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _installPrompt = e;
+  document.getElementById('install-app-row')?.style.setProperty('display', 'flex');
+});
+
+window.addEventListener('appinstalled', () => {
+  _installPrompt = null;
+  document.getElementById('install-app-row')?.style.setProperty('display', 'none');
+});
+
+async function installPWA() {
+  if (!_installPrompt) return;
+  _installPrompt.prompt();
+  const { outcome } = await _installPrompt.userChoice;
+  if (outcome === 'accepted') _installPrompt = null;
+}
+
 document.addEventListener('DOMContentLoaded', init);
