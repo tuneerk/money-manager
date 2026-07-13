@@ -112,6 +112,7 @@ const state = {
   voiceAlternates:  [],
   voiceMode:        'idle',
   pendingMultiTxns: [],
+  editingMultiIdx:  null,
   readbackEnabled:  true,
 
   scanData:         null,
@@ -242,7 +243,11 @@ function setupGlobalListeners() {
     await db.settings.put({ key: 'voiceLang', value: e.target.value });
   });
   document.getElementById('multi-save-all-btn').addEventListener('click', () => bulkSaveTxns(state.pendingMultiTxns));
-  document.getElementById('multi-review-btn').addEventListener('click', reviewMultiTxnsOne);
+  document.getElementById('multi-review-btn').addEventListener('click', () => {
+    if (!state.pendingMultiTxns.length) return;
+    closeOverlay('multi-txn-sheet');
+    startMultiTxnReview([...state.pendingMultiTxns]);
+  });
 
   document.getElementById('save-bucket-btn').addEventListener('click', saveBucket);
   document.getElementById('delete-bucket-btn').addEventListener('click', deleteBucket);
@@ -351,6 +356,12 @@ function closeOverlay(id) {
   document.getElementById(id).classList.remove('active');
   if (state.listening) stopListening();
   if (id === 'add-sheet') {
+    if (state.editingMultiIdx !== null) {
+      state.editingMultiIdx = null;
+      renderMultiTxnList();
+      openOverlay('multi-txn-sheet');
+      return;
+    }
     state.editingTxnId  = null;
     state.editingTxnOld = null;
     state.pendingMultiTxns = [];
@@ -895,6 +906,18 @@ async function saveTransaction() {
 
   closeOverlay('add-sheet');
   await refreshTxnList();
+
+  if (state.editingMultiIdx !== null) {
+    state.pendingMultiTxns.splice(state.editingMultiIdx, 1);
+    state.editingMultiIdx = null;
+    if (state.pendingMultiTxns.length > 0) {
+      renderMultiTxnList();
+      openOverlay('multi-txn-sheet');
+    } else {
+      showToast('All transactions saved');
+    }
+    return;
+  }
 
   if (state.pendingMultiTxns.length > 0) {
     const next = state.pendingMultiTxns.shift();
@@ -2151,8 +2174,7 @@ async function processVoiceText(text, confidence = 1.0) {
     if (aiResult) {
       if (aiResult.transactions?.length > 1) {
         if (aiResult.confirmText) speakConfirmation(aiResult.confirmText);
-        closeOverlay('voice-sheet');
-        await startMultiTxnReview(aiResult.transactions);
+        openMultiTxnConfirmSheet(aiResult.transactions);
         return;
       }
       state.voiceParsed = aiResult;
@@ -2513,17 +2535,63 @@ async function extractReceiptGemini(imageB64, apiKey, model = 'gemini-2.5-flash'
 }
 
 function openMultiTxnConfirmSheet(txns) {
-  document.getElementById('multi-txn-list').innerHTML = txns.map((t, i) => `
-    <div class="multi-txn-row">
-      <div class="multi-txn-info">
-        <span class="multi-txn-type ${t.type}">${t.type==='income'?'+':'-'}${state.currency}${fmt(t.amount)}</span>
-        <span class="multi-txn-cat">${t.categoryName||'Uncategorised'}</span>
-        <span class="multi-txn-note">${t.merchant||t.note||''}</span>
-      </div>
-      <button class="btn-sm" onclick="editMultiTxn(${i})">Edit</button>
-    </div>`).join('');
+  state.pendingMultiTxns = [...txns];
+  state.multiTxnTotal    = txns.length;
+  renderMultiTxnList();
   closeOverlay('voice-sheet');
   openOverlay('multi-txn-sheet');
+}
+
+function renderMultiTxnList() {
+  const txns = state.pendingMultiTxns;
+  const el = document.getElementById('multi-txn-list');
+  if (!el) return;
+  el.innerHTML = txns.map((t, i) => `
+    <div class="multi-txn-row">
+      <div class="multi-txn-info">
+        <span class="multi-txn-type ${t.type||'expense'}">${t.type==='income'?'+':'-'}${state.currency}${fmt(t.amount)}</span>
+        <span class="multi-txn-cat">${t.categoryName||'Uncategorised'} ${t.subcategoryName ? '· '+t.subcategoryName : ''}</span>
+        <span class="multi-txn-note">${t.merchant||t.note||''}</span>
+      </div>
+      <div style="display:flex;gap:5px;flex-shrink:0">
+        <button class="btn-sm btn-sm-success" onclick="saveMultiTxn(${i})" title="Save">✓</button>
+        <button class="btn-sm" onclick="editMultiTxn(${i})" title="Edit">✎</button>
+        <button class="btn-sm btn-sm-danger" onclick="deleteMultiTxn(${i})" title="Discard">✕</button>
+      </div>
+    </div>`).join('');
+  const titleEl = document.querySelector('#multi-txn-sheet .sheet-title');
+  if (titleEl) titleEl.textContent = `${txns.length} Transaction${txns.length !== 1 ? 's' : ''} Found`;
+}
+
+function deleteMultiTxn(idx) {
+  state.pendingMultiTxns.splice(idx, 1);
+  if (state.pendingMultiTxns.length === 0) {
+    closeOverlay('multi-txn-sheet');
+    showToast('Transaction discarded');
+    return;
+  }
+  renderMultiTxnList();
+}
+
+async function saveMultiTxn(idx) {
+  const t = state.pendingMultiTxns[idx];
+  await db.transactions.add({
+    type: t.type || 'expense', amount: t.amount,
+    categoryId: null, subcategoryId: null,
+    categoryName: t.categoryName || '', subcategoryName: t.subcategoryName || '',
+    accountId: null, date: t.date || new Date().toISOString().split('T')[0],
+    note: t.note || '', merchant: t.merchant || '',
+    receiptImage: null, createdAt: Date.now(),
+  });
+  state.pendingMultiTxns.splice(idx, 1);
+  await refreshTxnList();
+  if (state.pendingMultiTxns.length === 0) {
+    closeOverlay('multi-txn-sheet');
+    showToast('All transactions saved');
+    return;
+  }
+  renderMultiTxnList();
+  showToast(`Saved: ${t.merchant || t.categoryName || 'transaction'}`);
 }
 
 async function bulkSaveTxns(txns) {
@@ -2536,9 +2604,10 @@ async function bulkSaveTxns(txns) {
 }
 
 function editMultiTxn(idx) {
+  state.editingMultiIdx = idx;
   const t = state.pendingMultiTxns[idx];
   closeOverlay('multi-txn-sheet');
-  openAddSheet(t.type||'expense', { amount:t.amount, merchant:t.merchant, date:t.date, note:t.note, categoryName:t.categoryName, subcategoryName:t.subcategoryName });
+  openAddSheet(t.type || 'expense', { amount: t.amount, merchant: t.merchant, date: t.date, note: t.note, categoryName: t.categoryName, subcategoryName: t.subcategoryName });
 }
 
 async function reviewMultiTxnsOne() {
