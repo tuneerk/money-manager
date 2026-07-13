@@ -450,18 +450,22 @@
           <span style="color:var(--text-3)">›</span>
         </div>
         <div style="display:flex;flex-direction:column;gap:10px;padding:4px 0">
-          <div class="settings-row" style="cursor:pointer" onclick="exportExcel()">
-            <label style="cursor:pointer">Export as Excel (.xlsx)</label>
-            <span style="color:var(--text-3)">↓</span>
+          <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+            <span style="font-size:14px;color:var(--text)">Export</span>
+            <div style="display:flex;gap:20px">
+              <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);cursor:pointer">
+                <input type="radio" name="export-fmt" value="xlsx" checked style="accent-color:var(--accent)"> Excel (.xlsx)
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);cursor:pointer">
+                <input type="radio" name="export-fmt" value="json" style="accent-color:var(--accent)"> JSON (full backup)
+              </label>
+            </div>
+            <button class="btn btn-primary" style="width:100%;padding:10px" onclick="exportChosen()">Download ↓</button>
           </div>
           <div class="settings-row" style="cursor:pointer" onclick="document.getElementById('import-excel-input').click()">
             <label style="cursor:pointer">Import from Excel (.xlsx)</label>
             <span style="color:var(--text-3)">↑</span>
             <input type="file" id="import-excel-input" accept=".xlsx" style="display:none">
-          </div>
-          <div class="settings-row" style="cursor:pointer" onclick="exportData()">
-            <label style="cursor:pointer">Export as JSON (full backup)</label>
-            <span style="color:var(--text-3)">↓</span>
           </div>
         </div>
       </div>

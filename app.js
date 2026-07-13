@@ -1624,6 +1624,12 @@ function _isoToExcel(iso) {
 // ── XML escape ──
 function _xe(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+function exportChosen() {
+  const fmt = document.querySelector('input[name="export-fmt"]:checked')?.value || 'xlsx';
+  if (fmt === 'json') exportData();
+  else exportExcel();
+}
+
 // ── XLSX export ──
 async function exportExcel() {
   const txns     = await db.transactions.toArray();
