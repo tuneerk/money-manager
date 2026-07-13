@@ -3,6 +3,7 @@
   "short_name": "MoneyMgr",
   "description": "Personal finance tracker — track expenses, income, and budgets offline",
   "start_url": "/money-manager/",
+  "scope": "/money-manager/",
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#059669",
