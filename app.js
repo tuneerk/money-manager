@@ -147,23 +147,40 @@ async function init() {
 }
 
 function _applyDynamicSafeTop() {
-  const probe = document.createElement('div');
-  probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);pointer-events:none;visibility:hidden';
-  document.body.appendChild(probe);
+  const probeTop = document.createElement('div');
+  probeTop.style.cssText = 'position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);pointer-events:none;visibility:hidden';
+  const probeBot = document.createElement('div');
+  probeBot.style.cssText = 'position:fixed;bottom:0;left:0;width:0;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden';
+  document.body.appendChild(probeTop);
+  document.body.appendChild(probeBot);
   requestAnimationFrame(() => {
-    const safeTop = probe.getBoundingClientRect().height || 0;
-    document.body.removeChild(probe);
+    const safeTop = probeTop.getBoundingClientRect().height || 0;
+    const safeBot = probeBot.getBoundingClientRect().height || 0;
+    document.body.removeChild(probeTop);
+    document.body.removeChild(probeBot);
+
     const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    // ── Top safe area ──────────────────────────────────────────
     if (!isIOS && safeTop < 10) {
-      // Non-iOS: remove the iOS safe-area minimum
       document.querySelectorAll('.overlay-fullscreen, .screen').forEach(el => el.style.paddingTop = '0px');
     } else if (isIOS && safeTop > 10) {
-      // iOS with working env(): use exact measured value
       document.querySelectorAll('.overlay-fullscreen').forEach(el => el.style.paddingTop = safeTop + 'px');
       document.querySelectorAll('.screen').forEach(el => el.style.paddingTop = safeTop + 'px');
     }
     // iOS with env()=0: CSS max(env(),59px) gives 59px minimum — no override needed
+
+    // ── Bottom safe area ───────────────────────────────────────
+    // If env() returned 0 on iOS (a known PWA quirk), apply 34 px fallback so the
+    // nav background covers the home-indicator zone.
+    if (isIOS && safeBot < 5) {
+      const fallback = 34;
+      document.documentElement.style.setProperty('--safe-bottom', fallback + 'px');
+      const nav = document.getElementById('bottom-nav');
+      nav.style.height       = (60 + fallback) + 'px';
+      nav.style.paddingBottom = fallback + 'px';
+    }
   });
 }
 
