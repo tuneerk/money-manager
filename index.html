@@ -161,7 +161,9 @@
 
     /* ── Category Detail Sheet ── */
     .sheet-page { border-radius: 0; max-height: 100vh; height: 100vh; padding: 0; }
-    .cd-hdr { display: flex; align-items: center; padding: max(calc(env(safe-area-inset-top, 0px) + 24px), 88px) 16px 12px; gap: 8px; border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 1; }
+    .overlay-fullscreen { align-items: flex-start; padding-top: max(env(safe-area-inset-top, 0px), 59px); }
+    .overlay-fullscreen .sheet.sheet-page { height: 100%; max-height: 100%; }
+    .cd-hdr { display: flex; align-items: center; padding: 16px 16px 12px; gap: 8px; border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 1; }
     .cd-back { background: none; border: none; color: var(--text); font-size: 26px; line-height: 1; cursor: pointer; padding: 2px 10px 2px 0; }
     .cd-title { font-size: 16px; font-weight: 700; flex: 1; display: flex; align-items: center; gap: 6px; }
     .cd-mnav { display: flex; align-items: center; gap: 4px; }
@@ -606,7 +608,7 @@
 </div>
 
 <!-- Category Detail Sheet -->
-<div id="cat-detail-sheet" class="overlay-bg">
+<div id="cat-detail-sheet" class="overlay-bg overlay-fullscreen">
   <div class="sheet sheet-page">
     <div class="cd-hdr">
       <button class="cd-back" onclick="closeOverlay('cat-detail-sheet')">‹</button>
@@ -635,7 +637,7 @@
 </div>
 
 <!-- Tag Detail Sheet -->
-<div id="tag-detail-sheet" class="overlay-bg">
+<div id="tag-detail-sheet" class="overlay-bg overlay-fullscreen">
   <div class="sheet sheet-page">
     <div class="cd-hdr">
       <button class="cd-back" onclick="closeOverlay('tag-detail-sheet')">‹</button>

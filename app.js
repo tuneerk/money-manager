@@ -144,10 +144,16 @@ function _applyDynamicSafeTop() {
   requestAnimationFrame(() => {
     const safeTop = probe.getBoundingClientRect().height || 0;
     document.body.removeChild(probe);
-    if (safeTop > 0) {
-      const padTop = (safeTop + 24) + 'px';
-      document.querySelectorAll('.cd-hdr').forEach(el => el.style.paddingTop = padTop);
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (!isIOS && safeTop < 10) {
+      // Non-iOS device: remove the iOS safe-area minimum from overlays
+      document.querySelectorAll('.overlay-fullscreen').forEach(el => el.style.paddingTop = '0px');
+    } else if (isIOS && safeTop > 10) {
+      // iOS with working env(): use exact measured value
+      document.querySelectorAll('.overlay-fullscreen').forEach(el => el.style.paddingTop = safeTop + 'px');
     }
+    // iOS with env()=0: CSS max(env(),59px) already gives 59px minimum — no override needed
   });
 }
 
