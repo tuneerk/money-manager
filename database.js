@@ -14,6 +14,10 @@ db.version(2).stores({
   transactions: '++id, type, categoryId, subcategoryId, accountId, date, merchant, createdAt, tag',
 });
 
+db.version(3).stores({
+  buckets: '++id, name, createdAt',
+});
+
 async function seedDefaults() {
   const catCount = await db.categories.count();
   if (catCount > 0) return;

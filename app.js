@@ -64,6 +64,9 @@ const KEYWORD_MAP = {
   dividend:     ['Investment', ''],
 };
 
+const BUCKET_ICONS  = ['🎯','🏖️','🏠','🚗','💍','✈️','🎓','💻','📱','🏋️','🛍️','🎮','🎵','👶','🐾','💊'];
+const BUCKET_COLORS = ['#54A0FF','#5F27CD','#10AC84','#FF9F43','#FECA57','#FF6B6B','#FF9FF3','#48DBFB','#EE5A24','#C8D6E5'];
+
 const CHART_COLORS = [
   '#FF7B7B','#FF9A3C','#FFD700','#90EE90',
   '#4FC3A1','#40E0D0','#87CEEB','#DDA0DD',
@@ -117,6 +120,11 @@ const state = {
   selectedAccIcon:    '🏦',
   editingAccountId:   null,
   currency:           '₹',
+
+  editingBucketId:    null,
+  addFundsBucketId:   null,
+  selectedBucketIcon:  '🎯',
+  selectedBucketColor: '#54A0FF',
 };
 
 // ─── Init ──────────────────────────────────────────────────────────────────
@@ -235,6 +243,27 @@ function setupGlobalListeners() {
   });
   document.getElementById('multi-save-all-btn').addEventListener('click', () => bulkSaveTxns(state.pendingMultiTxns));
   document.getElementById('multi-review-btn').addEventListener('click', reviewMultiTxnsOne);
+
+  document.getElementById('save-bucket-btn').addEventListener('click', saveBucket);
+  document.getElementById('delete-bucket-btn').addEventListener('click', deleteBucket);
+  document.getElementById('add-funds-confirm-btn').addEventListener('click', saveAddFunds);
+
+  document.querySelectorAll('.bucket-icon-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.bucket-icon-opt').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      state.selectedBucketIcon = btn.textContent;
+      document.getElementById('bucket-icon-preview').textContent = btn.textContent;
+    });
+  });
+
+  document.querySelectorAll('.bucket-color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('.bucket-color-swatch').forEach(s => s.classList.remove('selected'));
+      sw.classList.add('selected');
+      state.selectedBucketColor = sw.dataset.color;
+    });
+  });
 }
 
 // ─── Month Navigation ───────────────────────────────────────────────────────
@@ -297,6 +326,7 @@ function switchTab(btn) {
   if (target === 'transactions')     refreshTxnList();
   if (target === 'reports')          refreshReports();
   if (target === 'accounts-screen')  refreshAccounts();
+  if (target === 'buckets-screen')   refreshBuckets();
   if (target === 'settings')         refreshSettings();
 }
 
@@ -1461,6 +1491,166 @@ async function deleteAccount() {
   closeOverlay('account-sheet');
   await refreshAccounts();
   showToast('Account deleted');
+}
+
+// ─── Savings Goals (Buckets) ────────────────────────────────────────────────
+async function refreshBuckets() {
+  const buckets = await db.buckets.orderBy('createdAt').toArray();
+  const totalSaved  = buckets.reduce((s, b) => s + (b.savedAmount  || 0), 0);
+  const totalTarget = buckets.reduce((s, b) => s + (b.targetAmount || 0), 0);
+  const overallPct  = totalTarget > 0 ? Math.min(100, Math.round(totalSaved / totalTarget * 100)) : 0;
+
+  document.getElementById('buckets-summary').innerHTML = `
+    <div class="bucket-summary-col">
+      <div class="bucket-summary-label">Saved</div>
+      <div class="bucket-summary-val" style="color:var(--income)">${state.currency}${fmt(totalSaved)}</div>
+    </div>
+    <div class="bucket-summary-col">
+      <div class="bucket-summary-label">Total Goal</div>
+      <div class="bucket-summary-val">${state.currency}${fmt(totalTarget)}</div>
+    </div>
+    <div class="bucket-summary-col">
+      <div class="bucket-summary-label">Progress</div>
+      <div class="bucket-summary-val" style="color:var(--income)">${overallPct}%</div>
+    </div>`;
+
+  const list = document.getElementById('buckets-list');
+  if (buckets.length === 0) {
+    list.innerHTML = '<p class="empty-state">No savings goals yet.<br>Tap + New Goal to get started.</p>';
+    return;
+  }
+  list.innerHTML = buckets.map(b => bucketCardHTML(b)).join('');
+}
+
+function bucketCardHTML(b) {
+  const saved  = b.savedAmount  || 0;
+  const target = b.targetAmount || 0;
+  const pct    = target > 0 ? Math.min(100, Math.round(saved / target * 100)) : 0;
+  const color  = b.color || '#54A0FF';
+  const icon   = b.icon  || '🎯';
+  const done   = pct >= 100;
+
+  let deadlineHTML = '';
+  if (b.deadline) {
+    const dl   = new Date(b.deadline + 'T00:00:00');
+    const days = Math.ceil((dl - new Date()) / 864e5);
+    if (days < 0)      deadlineHTML = `<span class="bucket-deadline" style="color:var(--expense)">Overdue ${Math.abs(days)}d</span>`;
+    else if (days === 0) deadlineHTML = `<span class="bucket-deadline" style="color:var(--expense)">Due today!</span>`;
+    else               deadlineHTML = `<span class="bucket-deadline">${days}d left · ${dl.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</span>`;
+  }
+
+  return `
+    <div class="bucket-card" onclick="openBucketSheet(${b.id})">
+      <div class="bucket-card-top">
+        <div class="bucket-icon-circle" style="background:${color}22">${icon}</div>
+        <div class="bucket-info">
+          <div class="bucket-name">${done ? '✅ ' : ''}${b.name}</div>
+          <div class="bucket-amounts">${state.currency}${fmt(saved)} of ${state.currency}${fmt(target)}</div>
+        </div>
+        <div class="bucket-pct" style="color:${done ? 'var(--income)' : color}">${pct}%</div>
+      </div>
+      <div class="bucket-bar-wrap">
+        <div class="bucket-bar-fill" style="width:${pct}%;background:${color}"></div>
+      </div>
+      <div class="bucket-card-footer">
+        ${deadlineHTML || '<span></span>'}
+        <button class="bucket-add-btn" onclick="event.stopPropagation();openAddFundsSheet(${b.id})">+ Add</button>
+      </div>
+    </div>`;
+}
+
+async function openBucketSheet(id = null) {
+  state.editingBucketId = id;
+  const isEdit = id !== null;
+  document.getElementById('bucket-sheet-title').textContent  = isEdit ? 'Edit Goal' : 'New Goal';
+  document.getElementById('save-bucket-btn').textContent     = isEdit ? 'Save Changes' : 'Create Goal';
+  document.getElementById('delete-bucket-btn').style.display = isEdit ? 'block' : 'none';
+
+  if (isEdit) {
+    const b = await db.buckets.get(id);
+    document.getElementById('bucket-name-input').value     = b.name;
+    document.getElementById('bucket-target-input').value   = b.targetAmount || '';
+    document.getElementById('bucket-saved-input').value    = b.savedAmount  || '';
+    document.getElementById('bucket-deadline-input').value = b.deadline     || '';
+    state.selectedBucketIcon  = b.icon  || '🎯';
+    state.selectedBucketColor = b.color || '#54A0FF';
+  } else {
+    document.getElementById('bucket-name-input').value     = '';
+    document.getElementById('bucket-target-input').value   = '';
+    document.getElementById('bucket-saved-input').value    = '';
+    document.getElementById('bucket-deadline-input').value = '';
+    state.selectedBucketIcon  = '🎯';
+    state.selectedBucketColor = '#54A0FF';
+  }
+
+  document.getElementById('bucket-icon-preview').textContent = state.selectedBucketIcon;
+  document.querySelectorAll('.bucket-icon-opt').forEach(btn =>
+    btn.classList.toggle('selected', btn.textContent === state.selectedBucketIcon)
+  );
+  document.querySelectorAll('.bucket-color-swatch').forEach(sw =>
+    sw.classList.toggle('selected', sw.dataset.color === state.selectedBucketColor)
+  );
+  document.getElementById('add-funds-prefix').textContent = state.currency;
+
+  openOverlay('bucket-sheet');
+}
+
+async function saveBucket() {
+  const name = document.getElementById('bucket-name-input').value.trim();
+  if (!name) { showToast('Enter a goal name'); return; }
+  const target   = parseFloat(document.getElementById('bucket-target-input').value)   || 0;
+  const saved    = parseFloat(document.getElementById('bucket-saved-input').value)    || 0;
+  const deadline = document.getElementById('bucket-deadline-input').value || null;
+
+  const data = {
+    name,
+    icon:         state.selectedBucketIcon,
+    color:        state.selectedBucketColor,
+    targetAmount: target,
+    savedAmount:  saved,
+    deadline,
+  };
+
+  if (state.editingBucketId) {
+    await db.buckets.update(state.editingBucketId, data);
+    showToast('Goal updated');
+  } else {
+    await db.buckets.add({ ...data, createdAt: Date.now() });
+    showToast('Goal created!');
+  }
+  closeOverlay('bucket-sheet');
+  await refreshBuckets();
+}
+
+async function deleteBucket() {
+  if (!state.editingBucketId) return;
+  if (!confirm('Delete this savings goal?')) return;
+  await db.buckets.delete(state.editingBucketId);
+  closeOverlay('bucket-sheet');
+  await refreshBuckets();
+  showToast('Goal deleted');
+}
+
+async function openAddFundsSheet(bucketId) {
+  state.addFundsBucketId = bucketId;
+  const b = await db.buckets.get(bucketId);
+  document.getElementById('add-funds-title').textContent  = `Add to "${b.name}"`;
+  document.getElementById('add-funds-amount').value = '';
+  document.getElementById('add-funds-prefix').textContent = state.currency;
+  openOverlay('add-funds-sheet');
+}
+
+async function saveAddFunds() {
+  const amount = parseFloat(document.getElementById('add-funds-amount').value);
+  if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
+  const b = await db.buckets.get(state.addFundsBucketId);
+  if (!b) return;
+  const newSaved = (b.savedAmount || 0) + amount;
+  await db.buckets.update(state.addFundsBucketId, { savedAmount: newSaved });
+  closeOverlay('add-funds-sheet');
+  await refreshBuckets();
+  const pct = b.targetAmount > 0 ? Math.min(100, Math.round(newSaved / b.targetAmount * 100)) : 0;
+  showToast(pct >= 100 ? `🎉 Goal reached!` : `${state.currency}${fmt(amount)} added · ${pct}%`);
 }
 
 function openTransferSheet() {
