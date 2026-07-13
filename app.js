@@ -148,13 +148,14 @@ function _applyDynamicSafeTop() {
     const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     if (!isIOS && safeTop < 10) {
-      // Non-iOS device: remove the iOS safe-area minimum from overlays
-      document.querySelectorAll('.overlay-fullscreen').forEach(el => el.style.paddingTop = '0px');
+      // Non-iOS: remove the iOS safe-area minimum
+      document.querySelectorAll('.overlay-fullscreen, .screen').forEach(el => el.style.paddingTop = '0px');
     } else if (isIOS && safeTop > 10) {
       // iOS with working env(): use exact measured value
       document.querySelectorAll('.overlay-fullscreen').forEach(el => el.style.paddingTop = safeTop + 'px');
+      document.querySelectorAll('.screen').forEach(el => el.style.paddingTop = safeTop + 'px');
     }
-    // iOS with env()=0: CSS max(env(),59px) already gives 59px minimum — no override needed
+    // iOS with env()=0: CSS max(env(),59px) gives 59px minimum — no override needed
   });
 }
 
