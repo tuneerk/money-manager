@@ -184,13 +184,10 @@ function setupGlobalListeners() {
     refreshReports();
   });
 
-  document.getElementById('export-excel-btn').addEventListener('click', exportExcel);
   document.getElementById('import-excel-input').addEventListener('change', e => {
     const f = e.target.files[0];
     if (f) { importExcel(f); e.target.value = ''; }
   });
-  document.getElementById('export-btn').addEventListener('click', exportData);
-  document.getElementById('clear-btn').addEventListener('click', clearData);
   document.getElementById('open-merchant-map-btn').addEventListener('click', openMerchantMap);
   document.getElementById('open-add-account-btn').addEventListener('click', () => openAccountSheet());
 
@@ -1630,6 +1627,8 @@ function _xe(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').re
 // ── XLSX export ──
 async function exportExcel() {
   const txns     = await db.transactions.toArray();
+  if (!txns.length) { showToast('No transactions to export'); return; }
+  if (!confirm(`Export ${txns.length} transaction${txns.length>1?'s':''} to Excel?`)) return;
   const accounts = await db.accounts.toArray();
   const accById  = Object.fromEntries(accounts.map(a => [a.id, a.name]));
 
@@ -1790,12 +1789,6 @@ async function importExcel(file) {
   }
 }
 
-async function clearData() {
-  if (!confirm('Clear ALL data? This cannot be undone.')) return;
-  await Promise.all([db.transactions.clear(), db.merchantMap.clear(), db.budgets.clear()]);
-  await refreshTxnList();
-  showToast('Data cleared');
-}
 
 async function openMerchantMap() {
   const map  = await db.merchantMap.toArray();

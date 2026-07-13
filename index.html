@@ -449,14 +449,20 @@
           <label id="open-merchant-map-btn" style="cursor:pointer">Merchant Rules</label>
           <span style="color:var(--text-3)">›</span>
         </div>
-        <div class="settings-row" style="gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary" id="export-excel-btn" style="width:auto;padding:8px 16px;font-size:14px">Export Excel</button>
-          <label class="btn btn-outline" style="width:auto;padding:8px 16px;font-size:14px;cursor:pointer">
-            Import Excel
+        <div style="display:flex;flex-direction:column;gap:10px;padding:4px 0">
+          <div class="settings-row" style="cursor:pointer" onclick="exportExcel()">
+            <label style="cursor:pointer">Export as Excel (.xlsx)</label>
+            <span style="color:var(--text-3)">↓</span>
+          </div>
+          <div class="settings-row" style="cursor:pointer" onclick="document.getElementById('import-excel-input').click()">
+            <label style="cursor:pointer">Import from Excel (.xlsx)</label>
+            <span style="color:var(--text-3)">↑</span>
             <input type="file" id="import-excel-input" accept=".xlsx" style="display:none">
-          </label>
-          <button class="btn btn-outline" id="export-btn" style="width:auto;padding:8px 16px;font-size:14px">Export JSON</button>
-          <button class="btn btn-danger"  id="clear-btn"  style="width:auto;padding:8px 16px;font-size:14px">Clear Data</button>
+          </div>
+          <div class="settings-row" style="cursor:pointer" onclick="exportData()">
+            <label style="cursor:pointer">Export as JSON (full backup)</label>
+            <span style="color:var(--text-3)">↓</span>
+          </div>
         </div>
       </div>
 
@@ -549,7 +555,10 @@
     <div id="receipt-preview-wrap" style="display:none;margin-bottom:14px">
       <img id="receipt-preview" style="max-width:100%;max-height:140px;border-radius:10px;object-fit:contain">
     </div>
-    <button id="save-txn-btn" class="btn btn-primary">Save</button>
+    <div style="display:flex;gap:10px">
+      <button id="cancel-txn-btn" class="btn btn-outline" style="flex:1" onclick="closeOverlay('add-sheet')">Cancel</button>
+      <button id="save-txn-btn" class="btn btn-primary" style="flex:2">Save</button>
+    </div>
     <button id="multi-skip-btn" style="display:none;width:100%;margin-top:10px;background:none;border:none;color:var(--text-2);font-size:13px;cursor:pointer;padding:8px" onclick="saveRemainingMulti()">Save remaining <span id="multi-skip-count"></span> without review →</button>
   </div>
 </div>
