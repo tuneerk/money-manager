@@ -184,6 +184,11 @@ function setupGlobalListeners() {
     refreshReports();
   });
 
+  document.getElementById('export-excel-btn').addEventListener('click', exportExcel);
+  document.getElementById('import-excel-input').addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (f) { importExcel(f); e.target.value = ''; }
+  });
   document.getElementById('export-btn').addEventListener('click', exportData);
   document.getElementById('clear-btn').addEventListener('click', clearData);
   document.getElementById('open-merchant-map-btn').addEventListener('click', openMerchantMap);
@@ -1508,6 +1513,281 @@ async function exportData() {
   a.click();
   URL.revokeObjectURL(url);
   showToast('Data exported');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// XLSX IMPORT / EXPORT  (no external library — pure browser APIs)
+// ═══════════════════════════════════════════════════════════════
+
+// ── CRC-32 table ──
+const _CRC32 = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[i] = c;
+  }
+  return t;
+})();
+function _crc32(buf) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = _CRC32[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+// ── Binary helpers ──
+function _u16(n) { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, n, true); return b; }
+function _u32(n) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n, true); return b; }
+function _cat(...parts) {
+  const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+  let pos = 0; for (const p of parts) { out.set(p, pos); pos += p.length; }
+  return out;
+}
+
+// ── ZIP writer (STORED = no compression) ──
+function _buildZip(files) {
+  const enc = new TextEncoder();
+  const locals = [], cds = [];
+  let offset = 0;
+  for (const [name, content] of Object.entries(files)) {
+    const nb = enc.encode(name);
+    const db = typeof content === 'string' ? enc.encode(content) : content;
+    const crc = _crc32(db);
+    const sz = db.length;
+    const lfh = _cat(
+      new Uint8Array([0x50,0x4B,0x03,0x04]),
+      _u16(20), _u16(0), _u16(0), _u16(0), _u16(0),
+      _u32(crc), _u32(sz), _u32(sz),
+      _u16(nb.length), _u16(0), nb
+    );
+    locals.push(_cat(lfh, db));
+    cds.push(_cat(
+      new Uint8Array([0x50,0x4B,0x01,0x02]),
+      _u16(20), _u16(20), _u16(0), _u16(0), _u16(0), _u16(0),
+      _u32(crc), _u32(sz), _u32(sz),
+      _u16(nb.length), _u16(0), _u16(0),
+      _u16(0), _u16(0), _u32(0), _u32(offset), nb
+    ));
+    offset += lfh.length + sz;
+  }
+  const cdBuf = _cat(...cds);
+  const eocd = _cat(
+    new Uint8Array([0x50,0x4B,0x05,0x06]),
+    _u16(0), _u16(0),
+    _u16(cds.length), _u16(cds.length),
+    _u32(cdBuf.length), _u32(offset),
+    _u16(0)
+  );
+  return _cat(...locals, cdBuf, eocd);
+}
+
+// ── ZIP reader (handles STORED and DEFLATE) ──
+async function _readZipEntry(buffer, target) {
+  const bytes = new Uint8Array(buffer);
+  const view  = new DataView(buffer);
+  let i = 0;
+  while (i < bytes.length - 30) {
+    if (view.getUint32(i, true) !== 0x04034B50) { i++; continue; }
+    const method  = view.getUint16(i + 8,  true);
+    const compSz  = view.getUint32(i + 18, true);
+    const nameLen = view.getUint16(i + 26, true);
+    const extLen  = view.getUint16(i + 28, true);
+    const name    = new TextDecoder().decode(bytes.subarray(i + 30, i + 30 + nameLen));
+    const start   = i + 30 + nameLen + extLen;
+    const payload = bytes.subarray(start, start + compSz);
+    if (name === target) {
+      if (method === 0) return new TextDecoder().decode(payload);
+      if (method === 8) {
+        const ds = new DecompressionStream('deflate-raw');
+        const w = ds.writable.getWriter();
+        const r = ds.readable.getReader();
+        w.write(payload); w.close();
+        const chunks = [];
+        for (;;) { const { done, value } = await r.read(); if (done) break; chunks.push(value); }
+        const out = new Uint8Array(chunks.reduce((s,c) => s+c.length, 0));
+        let p = 0; for (const c of chunks) { out.set(c, p); p += c.length; }
+        return new TextDecoder().decode(out);
+      }
+    }
+    i = start + compSz;
+  }
+  return null;
+}
+
+// ── Excel date helpers ──
+const _XLSX_EPOCH = Date.UTC(1899, 11, 30); // Dec 30 1899
+function _excelToISO(serial) {
+  return new Date(_XLSX_EPOCH + Math.floor(+serial) * 86400000).toISOString().split('T')[0];
+}
+function _isoToExcel(iso) {
+  const [y,m,d] = iso.split('-').map(Number);
+  return (Date.UTC(y, m-1, d) - _XLSX_EPOCH) / 86400000;
+}
+
+// ── XML escape ──
+function _xe(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── XLSX export ──
+async function exportExcel() {
+  const txns     = await db.transactions.toArray();
+  const accounts = await db.accounts.toArray();
+  const accById  = Object.fromEntries(accounts.map(a => [a.id, a.name]));
+
+  // shared strings table
+  const strs = []; const strIdx = {};
+  const ss = s => { const k = String(s ?? ''); if (k in strIdx) return strIdx[k]; strIdx[k] = strs.length; strs.push(k); return strs.length-1; };
+
+  const COLS = 'ABCDEFGHIJK';
+  const HDRS = ['Period','Accounts','Category','Subcategory','Note','INR','Income/Expense','Description','Amount','Currency','Accounts'];
+  HDRS.forEach(ss);
+
+  // row format: array of {t:'s'|'n', v, s?:styleIdx}
+  const headerRow = HDRS.map(h => ({ t:'s', v:ss(h) }));
+  const dataRows  = txns.map(txn => {
+    const acc  = accById[txn.accountId] || '';
+    const type = txn.type === 'income' ? 'Income' : txn.type === 'transfer' ? 'Transfer-Out' : 'Exp.';
+    const note = txn.note || '';
+    const merch = txn.merchant || '';
+    return [
+      { t:'n', v:_isoToExcel(txn.date || new Date().toISOString().split('T')[0]), s:1 },
+      { t:'s', v:ss(acc) },
+      { t:'s', v:ss(txn.categoryName || '') },
+      { t:'s', v:ss(txn.subcategoryName || '') },
+      { t:'s', v:ss(merch || note) },
+      { t:'n', v:txn.amount },
+      { t:'s', v:ss(type) },
+      { t:'s', v:ss(note) },
+      { t:'n', v:txn.amount },
+      { t:'s', v:ss('INR') },
+      { t:'s', v:ss(acc) },
+    ];
+  });
+
+  // Build sheet XML
+  const allRows = [headerRow, ...dataRows];
+  let sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`;
+  allRows.forEach((row, ri) => {
+    sheetXml += `<row r="${ri+1}">`;
+    row.forEach((cell, ci) => {
+      const ref = COLS[ci] + (ri+1);
+      if (cell.t === 's') {
+        sheetXml += `<c r="${ref}" t="s"><v>${cell.v}</v></c>`;
+      } else {
+        sheetXml += `<c r="${ref}"${cell.s ? ` s="${cell.s}"` : ''}><v>${cell.v}</v></c>`;
+      }
+    });
+    sheetXml += `</row>`;
+  });
+  sheetXml += `</sheetData></worksheet>`;
+
+  const ssXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${strs.length}" uniqueCount="${strs.length}">${strs.map(s=>`<si><t>${_xe(s)}</t></si>`).join('')}</sst>`;
+
+  const zip = _buildZip({
+    '[Content_Types].xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+    '_rels/.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Transactions" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    'xl/worksheets/sheet1.xml': sheetXml,
+    'xl/sharedStrings.xml': ssXml,
+    'xl/styles.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`,
+  });
+
+  const blob = new Blob([zip], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `money-manager-${new Date().toISOString().split('T')[0]}.xlsx`;
+  a.click(); URL.revokeObjectURL(url);
+  showToast('Excel exported');
+}
+
+// ── XLSX import ──
+async function importExcel(file) {
+  try {
+    showToast('Reading file…');
+    const buffer = await file.arrayBuffer();
+
+    const ssXml    = await _readZipEntry(buffer, 'xl/sharedStrings.xml');
+    const sheetXml = await _readZipEntry(buffer, 'xl/worksheets/sheet1.xml');
+    if (!sheetXml) { showToast('Cannot read sheet'); return; }
+
+    // Parse shared strings
+    const ssDoc  = new DOMParser().parseFromString(ssXml || '<sst/>', 'text/xml');
+    const strings = [...ssDoc.querySelectorAll('si')].map(si => {
+      // concatenate all <t> inside this <si> (handles rich text)
+      return [...si.querySelectorAll('t')].map(t => t.textContent).join('');
+    });
+
+    // Parse sheet
+    const shDoc = new DOMParser().parseFromString(sheetXml, 'text/xml');
+    const getVal = c => {
+      const t = c.getAttribute('t');
+      const v = c.querySelector('v')?.textContent ?? '';
+      return t === 's' ? (strings[+v] ?? '') : v;
+    };
+    const col = ref => ref.replace(/[0-9]/g, '');
+
+    const rows = [...shDoc.querySelectorAll('row')];
+    if (rows.length <= 1) { showToast('No data found'); return; }
+
+    // Lookup maps for matching accounts / categories
+    const accs    = await db.accounts.toArray();
+    const cats    = await db.categories.toArray();
+    const subcats = await db.subcategories.toArray();
+    const accByName = Object.fromEntries(accs.map(a => [a.name.toLowerCase(), a.id]));
+    const catByName = Object.fromEntries(cats.map(c => [c.name.toLowerCase(), c.id]));
+    const subByName = Object.fromEntries(subcats.map(s => [s.name.toLowerCase(), s.id]));
+
+    const txns = []; let skipped = 0; const now = Date.now();
+
+    for (let ri = 1; ri < rows.length; ri++) {
+      const cells = {};
+      for (const c of rows[ri].querySelectorAll('c')) cells[col(c.getAttribute('r'))] = getVal(c);
+
+      // Map type
+      const rawType = cells['G'] || '';
+      let type;
+      if (rawType === 'Exp.' || rawType === 'Expense')           type = 'expense';
+      else if (rawType === 'Income')                             type = 'income';
+      else if (rawType === 'Transfer-Out' || rawType === 'Transfer-In') type = 'transfer';
+      else { skipped++; continue; }
+
+      const amount = parseFloat(cells['F'] || cells['I'] || '0');
+      if (!amount || amount <= 0) { skipped++; continue; }
+
+      const dateSerial = parseFloat(cells['A'] || '0');
+      const date = dateSerial > 0 ? _excelToISO(dateSerial) : new Date().toISOString().split('T')[0];
+
+      // Account
+      const accName  = cells['B'] || '';
+      const accountId = accByName[accName.toLowerCase()] ?? null;
+
+      // Category — strip leading emoji if present (e.g. "🚖 Transport" → "Transport")
+      const rawCat = cells['C'] || '';
+      const categoryName = /^[^\x00-\x7F]/.test(rawCat) ? rawCat.replace(/^\S+\s*/, '') : rawCat;
+      const categoryId   = catByName[categoryName.toLowerCase()] ?? null;
+
+      const subcategoryName = cells['D'] || '';
+      const subcategoryId   = subByName[subcategoryName.toLowerCase()] ?? null;
+
+      const merchant = cells['E'] || '';
+      const note     = cells['H'] || '';
+
+      txns.push({ type, amount, categoryId, subcategoryId, categoryName, subcategoryName,
+        accountId, date, note, merchant, receiptImage:null, tag:null, createdAt: now + ri });
+    }
+
+    if (!txns.length) { showToast(`No valid rows (${skipped} skipped)`); return; }
+
+    const ok = confirm(`Import ${txns.length} transaction${txns.length>1?'s':''}${skipped ? ` (${skipped} rows skipped)` : ''}?`);
+    if (!ok) return;
+
+    await db.transactions.bulkAdd(txns);
+    await refreshTxnList();
+    showToast(`${txns.length} transactions imported`);
+  } catch (err) {
+    console.error('importExcel', err);
+    showToast('Import failed: ' + err.message);
+  }
 }
 
 async function clearData() {
