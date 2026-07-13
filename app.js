@@ -114,8 +114,9 @@ const state = {
   scanData:         null,
   scanImageB64:     null,
   autocatData:      null,
-  selectedAccIcon:  '🏦',
-  currency:         '₹',
+  selectedAccIcon:    '🏦',
+  editingAccountId:   null,
+  currency:           '₹',
 };
 
 // ─── Init ──────────────────────────────────────────────────────────────────
@@ -1360,7 +1361,7 @@ function accountRowHTML(a) {
     </div>` : '';
 
   return `
-    <div class="account-row">
+    <div class="account-row" onclick="openAccountSheet(${a.id})">
       <div class="acc-icon-circle">${a.icon || '🏦'}</div>
       <div class="acc-info" style="flex:1;min-width:0">
         <div class="acc-name">${a.name}</div>
@@ -1384,14 +1385,32 @@ function groupAccounts(accounts) {
   return groups;
 }
 
-function openAccountSheet() {
-  document.getElementById('account-name').value    = '';
-  document.getElementById('account-type').value    = 'Savings';
-  document.getElementById('account-balance').value = '';
-  document.getElementById('account-limit').value   = '';
-  document.getElementById('credit-limit-field').style.display = 'none';
-  state.selectedAccIcon = '🏦';
-  document.getElementById('acc-icon-preview').textContent = '🏦';
+async function openAccountSheet(id = null) {
+  state.editingAccountId = id;
+  const isEdit = id !== null;
+  document.getElementById('account-sheet-title').textContent = isEdit ? 'Edit Account' : 'Add Account';
+  document.getElementById('save-account-btn').textContent    = isEdit ? 'Save Changes' : 'Add Account';
+  document.getElementById('delete-account-btn').style.display = isEdit ? 'block' : 'none';
+
+  if (isEdit) {
+    const a = await db.accounts.get(id);
+    document.getElementById('account-name').value    = a.name;
+    document.getElementById('account-type').value    = a.type;
+    document.getElementById('account-balance').value = a.balance ?? '';
+    document.getElementById('account-balance-label').textContent = 'Current Balance';
+    document.getElementById('account-limit').value   = a.limit ?? '';
+    state.selectedAccIcon = a.icon || '🏦';
+    onAccountTypeChange(a.type);
+  } else {
+    document.getElementById('account-name').value    = '';
+    document.getElementById('account-type').value    = 'Savings';
+    document.getElementById('account-balance').value = '';
+    document.getElementById('account-balance-label').textContent = 'Opening Balance';
+    document.getElementById('account-limit').value   = '';
+    document.getElementById('credit-limit-field').style.display = 'none';
+    state.selectedAccIcon = '🏦';
+  }
+  document.getElementById('acc-icon-preview').textContent = state.selectedAccIcon;
   openOverlay('account-sheet');
 }
 
@@ -1414,20 +1433,33 @@ document.addEventListener('DOMContentLoaded', () => {
 async function saveAccount() {
   const name = document.getElementById('account-name').value.trim();
   if (!name) { showToast('Enter account name'); return; }
-  const type  = document.getElementById('account-type').value;
-  const limit = type === 'Credit Card'
+  const type    = document.getElementById('account-type').value;
+  const balance = parseFloat(document.getElementById('account-balance').value) || 0;
+  const limit   = type === 'Credit Card'
     ? (parseFloat(document.getElementById('account-limit').value) || null)
     : null;
-  await db.accounts.add({
-    name,
-    type,
-    balance: parseFloat(document.getElementById('account-balance').value) || 0,
-    limit,
-    icon: state.selectedAccIcon,
-  });
+  const icon = state.selectedAccIcon;
+
+  if (state.editingAccountId) {
+    await db.accounts.update(state.editingAccountId, { name, type, balance, limit, icon });
+    closeOverlay('account-sheet');
+    await refreshAccounts();
+    showToast('Account updated');
+  } else {
+    await db.accounts.add({ name, type, balance, limit, icon });
+    closeOverlay('account-sheet');
+    await refreshAccounts();
+    showToast('Account added');
+  }
+}
+
+async function deleteAccount() {
+  if (!state.editingAccountId) return;
+  if (!confirm('Delete this account?')) return;
+  await db.accounts.delete(state.editingAccountId);
   closeOverlay('account-sheet');
   await refreshAccounts();
-  showToast('Account added');
+  showToast('Account deleted');
 }
 
 function openTransferSheet() {

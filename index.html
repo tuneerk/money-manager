@@ -26,7 +26,7 @@
       --transfer: #BB86FC;
       --accent:   #FF5252;
       --nav-h:    60px;
-      --safe-bottom: max(env(safe-area-inset-bottom, 0px), 20px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
       --radius:   14px;
       --radius-sm:8px;
     }
@@ -43,7 +43,10 @@
       padding-bottom: var(--safe-bottom);
       background: var(--surface);
       border-top: 1px solid var(--border);
-      display: flex; position: relative; z-index: 10;
+      display: flex;
+      position: fixed; bottom: 0; left: 0; right: 0;
+      z-index: 10;
+      max-width: 480px; margin: 0 auto;
     }
     .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: none; background: none; cursor: pointer; color: var(--text-3); font-size: 10px; padding: 8px 0; transition: color .15s; }
     .nav-btn.active { color: var(--accent); }
@@ -690,7 +693,10 @@
 <div id="account-sheet" class="overlay-bg">
   <div class="sheet">
     <div class="sheet-handle"></div>
-    <div class="sheet-title">Add Account</div>
+    <div style="display:flex;align-items:center;margin-bottom:18px">
+      <div id="account-sheet-title" class="sheet-title" style="margin-bottom:0;flex:1">Add Account</div>
+      <button id="delete-account-btn" onclick="deleteAccount()" style="display:none;background:none;border:none;color:var(--expense);font-size:14px;font-weight:600;cursor:pointer;padding:4px 0 4px 12px">Delete</button>
+    </div>
     <div class="form-field">
       <div class="field-label">Icon</div>
       <div class="acc-icon-grid">
@@ -720,7 +726,7 @@
         </select>
       </div>
       <div class="form-field">
-        <div class="field-label">Opening Balance</div>
+        <div class="field-label" id="account-balance-label">Opening Balance</div>
         <input id="account-balance" class="field-input" type="number" inputmode="decimal" placeholder="0">
       </div>
     </div>
