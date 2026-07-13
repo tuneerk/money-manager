@@ -27,7 +27,6 @@
       --accent:   #FF5252;
       --nav-h:    60px;
       --safe-bottom: max(env(safe-area-inset-bottom, 0px), 20px);
-      --safe-top: max(env(safe-area-inset-top, 0px), 48px);
       --radius:   14px;
       --radius-sm:8px;
     }
@@ -161,8 +160,8 @@
     .tag-filter-chip.active { background: var(--accent); color: white; border-color: var(--accent); }
 
     /* ── Category Detail Sheet ── */
-    .sheet-page { border-radius: 0; max-height: 100vh; height: 100vh; padding: var(--safe-top) 0 0; }
-    .cd-hdr { display: flex; align-items: center; padding: 12px 16px 12px; gap: 8px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .sheet-page { border-radius: 0; max-height: 100vh; height: 100vh; padding: 0; }
+    .cd-hdr { display: flex; align-items: center; padding: max(env(safe-area-inset-top, 0px), 60px) 16px 12px; gap: 8px; border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 1; }
     .cd-back { background: none; border: none; color: var(--text); font-size: 26px; line-height: 1; cursor: pointer; padding: 2px 10px 2px 0; }
     .cd-title { font-size: 16px; font-weight: 700; flex: 1; display: flex; align-items: center; gap: 6px; }
     .cd-mnav { display: flex; align-items: center; gap: 4px; }
