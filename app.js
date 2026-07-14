@@ -1159,7 +1159,8 @@ function renderPieChart(sorted, total) {
   const svg = document.getElementById('pie-svg');
   if (!svg) return;
 
-  const W = 320, H = 240, cx = 155, cy = 118, r = 82;
+  // Label columns: 0–72 (left) and 288–360 (right), pie in the middle
+  const W = 360, H = 260, cx = 180, cy = 128, r = 86;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
   if (sorted.length === 0 || total === 0) {
@@ -1195,11 +1196,10 @@ function renderPieChart(sorted, total) {
   // ── External labels (only ≥ 1.2%) ──
   const labeled = slices.filter(s => s.pct >= 0.012);
 
-  // Separate left / right halves, sort by vertical midpoint
   const rightGroup = labeled.filter(s => Math.cos(s.midAngle) >= 0).sort((a, b) => a.midAngle - b.midAngle);
   const leftGroup  = labeled.filter(s => Math.cos(s.midAngle) <  0).sort((a, b) => a.midAngle - b.midAngle);
 
-  const MIN_GAP = 21;
+  const MIN_GAP = 22;
   function packY(group) {
     const pts = group.map(s => ({ ...s, y: cy + (r + 22) * Math.sin(s.midAngle) }));
     for (let i = 1; i < pts.length; i++)
@@ -1210,22 +1210,23 @@ function renderPieChart(sorted, total) {
   }
 
   for (const p of [...packY(rightGroup), ...packY(leftGroup)]) {
-    const right  = Math.cos(p.midAngle) >= 0;
-    const anchor = right ? 'start' : 'end';
-    const textX  = right ? W - 6 : 6;
+    const right = Math.cos(p.midAngle) >= 0;
+    // Right labels: anchor="end" at textX, text extends LEFTWARD (stays within SVG)
+    // Left labels: anchor="start" at textX, text extends RIGHTWARD (stays within SVG)
+    const textX  = right ? W - 4 : 4;
+    const anchor = right ? 'end' : 'start';
+    const knee   = right ? cx + r + 14 : cx - r - 14;
 
-    // connector: pie-edge → elbow at (textX ∓ 30, p.y)
-    const ex  = cx + r * Math.cos(p.midAngle);
-    const ey  = cy + r * Math.sin(p.midAngle);
-    const knee = right ? textX - 28 : textX + 28;
+    const ex = cx + r * Math.cos(p.midAngle);
+    const ey = cy + r * Math.sin(p.midAngle);
 
     const meta      = getCatMeta(p.catName);
-    const shortName = p.catName.length > 10 ? p.catName.slice(0, 10) + '…' : p.catName;
-    const pctStr    = (p.pct * 100).toFixed(1) + ' %';
+    const shortName = p.catName.length > 9 ? p.catName.slice(0, 9) + '…' : p.catName;
+    const pctStr    = (p.pct * 100).toFixed(1) + '%';
 
-    html += `<polyline points="${ex.toFixed(1)},${ey.toFixed(1)} ${knee.toFixed(1)},${p.y.toFixed(1)} ${textX},${p.y.toFixed(1)}" fill="none" stroke="${p.color}" stroke-width="0.9" opacity="0.75"/>
-      <text x="${textX + (right ? 2 : -2)}" y="${p.y - 5}" text-anchor="${anchor}" fill="#FFFFFF" font-size="9.5" font-weight="700" font-family="system-ui,sans-serif">${meta.icon} ${shortName}</text>
-      <text x="${textX + (right ? 2 : -2)}" y="${p.y + 7}" text-anchor="${anchor}" fill="#9999BB" font-size="8.5" font-family="system-ui,sans-serif">${pctStr}</text>`;
+    html += `<polyline points="${ex.toFixed(1)},${ey.toFixed(1)} ${knee.toFixed(1)},${p.y.toFixed(1)} ${textX},${p.y.toFixed(1)}" fill="none" stroke="${p.color}" stroke-width="0.9" opacity="0.8"/>
+      <text x="${textX}" y="${p.y - 5}" text-anchor="${anchor}" fill="#FFFFFF" font-size="9.5" font-weight="600" font-family="system-ui,sans-serif">${meta.icon} ${shortName}</text>
+      <text x="${textX}" y="${p.y + 7}" text-anchor="${anchor}" fill="#9999BB" font-size="8.5" font-family="system-ui,sans-serif">${pctStr}</text>`;
   }
 
   svg.innerHTML = html;
