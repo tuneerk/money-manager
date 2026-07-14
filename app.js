@@ -3553,23 +3553,42 @@ window.addEventListener('popstate', () => {
 });
 
 // Swipe-down to dismiss sheets ───────────────────────────────────────────────
+
+// Walk up from el to sheet (inclusive) and return the first scrollable ancestor.
+function _findScrollable(el, sheet) {
+  let node = el;
+  while (node) {
+    const oy = getComputedStyle(node).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight) return node;
+    if (node === sheet) break;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 function setupSheetDismiss() {
   document.querySelectorAll('.overlay-bg .sheet').forEach(sheet => {
-    let startY = 0, curY = 0, dragging = false;
+    let startY = 0, curY = 0, dragging = false, scrollEl = null;
     const bg = sheet.closest('.overlay-bg');
 
     sheet.addEventListener('touchstart', e => {
-      const t = e.touches[0];
-      startY   = t.clientY;
-      curY     = t.clientY;
-      dragging = true;
-      sheet.style.transition = 'none';
+      startY = curY = e.touches[0].clientY;
+      scrollEl = _findScrollable(e.target, sheet);
+      // Don't start dismiss if the scrollable area is already scrolled down
+      dragging = !(scrollEl && scrollEl.scrollTop > 0);
+      if (dragging) sheet.style.transition = 'none';
     }, { passive: true });
 
     sheet.addEventListener('touchmove', e => {
       if (!dragging) return;
       curY = e.touches[0].clientY;
-      const dy = Math.max(0, curY - startY);
+      const dy = curY - startY;
+      // If user drags up, or the scroll container has drifted away from top, abort dismiss
+      if (dy <= 0 || (scrollEl && scrollEl.scrollTop > 0)) {
+        dragging = false;
+        sheet.style.transform = '';
+        return;
+      }
       sheet.style.transform = `translateY(${dy}px)`;
     }, { passive: true });
 
