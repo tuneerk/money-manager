@@ -187,6 +187,19 @@ async function init() {
   await refreshTxnList();
   setupGlobalListeners();
   _applyDynamicSafeTop();
+
+  // Background Splitwise auto-sync (every 12h)
+  const [swEnabledRow, swUrlRow, swLastFetchRow] = await Promise.all([
+    db.settings.get('splitwiseEnabled'),
+    db.settings.get('splitwiseProxyUrl'),
+    db.settings.get('splitwiseLastFetch'),
+  ]);
+  const swReady = !!(swEnabledRow?.value && swUrlRow?.value?.trim());
+  if (swReady) {
+    const lastFetch = swLastFetchRow?.value ? new Date(swLastFetchRow.value) : null;
+    const stale = !lastFetch || (Date.now() - lastFetch.getTime() > 12 * 3600 * 1000);
+    if (stale) refreshSplitwiseBalances(true);
+  }
 }
 
 function _applyDynamicSafeTop() {
@@ -2029,16 +2042,49 @@ async function testSplitwiseConnection() {
   }
 }
 
-async function refreshSplitwiseBalances() {
+function swRelativeTime(isoStr) {
+  if (!isoStr) return 'never';
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1)  return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function swApplyFriendsData(friends, totalOwed, totalOwe) {
+  state.splitwiseFriends   = friends;
+  state.splitwiseTotalOwed = totalOwed;
+  state.splitwiseTotalOwe  = totalOwe;
   const owedEl = document.getElementById('sw-list-owed');
   const oweEl  = document.getElementById('sw-list-owe');
   const netEl  = document.getElementById('sw-list-net');
-  if (!owedEl) return;
+  const net = totalOwed - totalOwe;
+  if (owedEl) { owedEl.textContent = `${state.currency}${fmt(totalOwed)}`; owedEl.className = `acc-row-bal ${totalOwed > 0 ? 'positive' : 'zero'}`; }
+  if (oweEl)  { oweEl.textContent  = `${state.currency}${fmt(totalOwe)}`;  oweEl.className  = `acc-row-bal ${totalOwe > 0 ? 'negative' : 'zero'}`; oweEl.style.minWidth = '110px'; }
+  if (netEl)  { netEl.textContent  = `${net >= 0 ? '' : '-'}${state.currency}${fmt(Math.abs(net))}`; }
+}
+
+async function refreshSplitwiseBalances(forceRefresh = false) {
+  // Show cached values immediately (no spinner, instant UI)
+  const cacheRow = await db.settings.get('splitwiseFriendsCache');
+  if (cacheRow?.value) {
+    try {
+      const c = JSON.parse(cacheRow.value);
+      swApplyFriendsData(c.friends || [], c.totalOwed || 0, c.totalOwe || 0);
+    } catch (_) {}
+  }
+
+  // Only hit the network if > 12h old or forced
+  const lastFetchRow = await db.settings.get('splitwiseLastFetch');
+  const lastFetch = lastFetchRow?.value ? new Date(lastFetchRow.value) : null;
+  const stale = !lastFetch || (Date.now() - lastFetch.getTime() > 12 * 3600 * 1000);
+  if (!stale && !forceRefresh) return;
 
   try {
     const data    = await splitwiseFetch('/get_friends');
     const friends = (data.friends || []).filter(f => f.balance?.length > 0);
-
     let totalOwed = 0, totalOwe = 0;
     const friendsData = [];
     for (const f of friends) {
@@ -2049,73 +2095,30 @@ async function refreshSplitwiseBalances() {
       else            totalOwe  += Math.abs(amount);
       friendsData.push({ name: `${f.first_name} ${f.last_name || ''}`.trim(), amount });
     }
-
-    state.splitwiseFriends   = friendsData;
-    state.splitwiseTotalOwed = totalOwed;
-    state.splitwiseTotalOwe  = totalOwe;
-
-    const net = totalOwed - totalOwe;
-    owedEl.textContent = `${state.currency}${fmt(totalOwed)}`;
-    owedEl.className   = `acc-row-bal ${totalOwed > 0 ? 'positive' : 'zero'}`;
-    oweEl.textContent  = `${state.currency}${fmt(totalOwe)}`;
-    oweEl.className    = `acc-row-bal ${totalOwe > 0 ? 'negative' : 'zero'}`;
-    oweEl.style.minWidth = '110px';
-    if (netEl) {
-      netEl.textContent = `${net >= 0 ? '' : '-'}${state.currency}${fmt(Math.abs(net))}`;
-    }
+    const fetchedAt = new Date().toISOString();
+    await Promise.all([
+      db.settings.put({ key: 'splitwiseFriendsCache', value: JSON.stringify({ friends: friendsData, totalOwed, totalOwe, fetchedAt }) }),
+      db.settings.put({ key: 'splitwiseLastFetch', value: fetchedAt }),
+    ]);
+    swApplyFriendsData(friendsData, totalOwed, totalOwe);
+    const syncEl = document.getElementById('sw-detail-sync-time');
+    if (syncEl) syncEl.textContent = 'just now';
+    renderSplitwiseFriendsDetail();
   } catch (err) {
-    owedEl.textContent = '—';
-    oweEl.textContent  = '—';
     console.warn('[Splitwise] balance fetch failed:', err.message);
   }
 }
 
-async function openSplitwiseDetail() {
-  document.getElementById('acc-detail-heading').textContent = '🔄 Splitwise';
-  document.getElementById('acc-detail-edit-btn').style.display = 'none';
-  document.getElementById('acc-detail-section-label').textContent = 'Friends';
-  document.getElementById('acc-detail-footer').style.display = 'block';
-
-  const owed = state.splitwiseTotalOwed;
-  const owe  = state.splitwiseTotalOwe;
-  const net  = owed - owe;
-
-  document.getElementById('acc-detail-info').innerHTML = `
-    <div class="acc-detail-balance-card">
-      <div style="display:flex;gap:10px;margin-bottom:12px">
-        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(91,184,255,.08);border-radius:10px">
-          <div class="acc-detail-type-label">You are owed</div>
-          <div class="acc-detail-amount positive" style="font-size:20px">${state.currency}${fmt(owed)}</div>
-        </div>
-        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(255,96,96,.08);border-radius:10px">
-          <div class="acc-detail-type-label">You owe</div>
-          <div class="acc-detail-amount negative" style="font-size:20px">${state.currency}${fmt(owe)}</div>
-        </div>
-      </div>
-      <div class="acc-detail-type-label" style="text-align:center">Net balance</div>
-      <div class="acc-detail-amount ${net >= 0 ? 'positive' : 'negative'}" style="font-size:24px;text-align:center">${net >= 0 ? '' : '-'}${state.currency}${fmt(Math.abs(net))}</div>
-    </div>`;
-
-  document.getElementById('acc-detail-txns').innerHTML =
-    '<p style="padding:16px var(--px);color:var(--text-3);font-size:13px">Loading…</p>';
-
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById('account-detail-screen').classList.add('active');
-
-  if (!state.splitwiseFriends) {
-    try {
-      await refreshSplitwiseBalances();
-    } catch (_) {}
-  }
-
+function renderSplitwiseFriendsDetail() {
   const friends = state.splitwiseFriends || [];
+  const el = document.getElementById('acc-detail-txns');
+  if (!el) return;
   if (friends.length === 0) {
-    document.getElementById('acc-detail-txns').innerHTML = '<p class="empty-state">All settled up! 🎉</p>';
+    el.innerHTML = '<p class="empty-state">All settled up! 🎉</p>';
     return;
   }
-
   const sorted = [...friends].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
-  document.getElementById('acc-detail-txns').innerHTML = sorted.map(f => {
+  el.innerHTML = sorted.map(f => {
     const cls   = f.amount > 0 ? 'positive' : 'negative';
     const label = f.amount > 0 ? 'owes you' : 'you owe';
     const sign  = f.amount > 0 ? '+' : '-';
@@ -2133,12 +2136,102 @@ async function openSplitwiseDetail() {
   }).join('');
 }
 
-function openSplitwiseImport() {
-  const today       = new Date().toISOString().split('T')[0];
-  const thirtyAgo   = new Date(Date.now() - 30 * 864e5).toISOString().split('T')[0];
-  document.getElementById('sw-import-from').value    = thirtyAgo;
+async function syncSplitwiseNow() {
+  const syncEl = document.getElementById('sw-detail-sync-time');
+  if (syncEl) syncEl.textContent = 'syncing…';
+  await refreshSplitwiseBalances(true);
+  // update balance card numbers
+  const owed = state.splitwiseTotalOwed;
+  const owe  = state.splitwiseTotalOwe;
+  const net  = owed - owe;
+  const owedAmtEl = document.getElementById('sw-card-owed');
+  const oweAmtEl  = document.getElementById('sw-card-owe');
+  const netAmtEl  = document.getElementById('sw-card-net');
+  if (owedAmtEl) owedAmtEl.textContent = `${state.currency}${fmt(owed)}`;
+  if (oweAmtEl)  oweAmtEl.textContent  = `${state.currency}${fmt(owe)}`;
+  if (netAmtEl)  { netAmtEl.textContent = `${net >= 0 ? '' : '-'}${state.currency}${fmt(Math.abs(net))}`; netAmtEl.className = `acc-detail-amount ${net >= 0 ? 'positive' : 'negative'}`; }
+}
+
+async function openSplitwiseDetail() {
+  document.getElementById('acc-detail-heading').textContent = '🔄 Splitwise';
+  document.getElementById('acc-detail-edit-btn').style.display = 'none';
+  document.getElementById('acc-detail-section-label').textContent = 'Friends';
+  document.getElementById('acc-detail-footer').style.display = 'block';
+
+  // Load from IDB cache if state is empty
+  if (!state.splitwiseFriends) {
+    const cacheRow = await db.settings.get('splitwiseFriendsCache');
+    if (cacheRow?.value) {
+      try {
+        const c = JSON.parse(cacheRow.value);
+        swApplyFriendsData(c.friends || [], c.totalOwed || 0, c.totalOwe || 0);
+      } catch (_) {}
+    }
+  }
+
+  const owed = state.splitwiseTotalOwed;
+  const owe  = state.splitwiseTotalOwe;
+  const net  = owed - owe;
+
+  const [lastFetchRow, lastImportRow] = await Promise.all([
+    db.settings.get('splitwiseLastFetch'),
+    db.settings.get('splitwiseLastImport'),
+  ]);
+  const syncTime = swRelativeTime(lastFetchRow?.value);
+
+  document.getElementById('acc-detail-info').innerHTML = `
+    <div class="acc-detail-balance-card">
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(91,184,255,.08);border-radius:10px">
+          <div class="acc-detail-type-label">You are owed</div>
+          <div id="sw-card-owed" class="acc-detail-amount positive" style="font-size:20px">${state.currency}${fmt(owed)}</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(255,96,96,.08);border-radius:10px">
+          <div class="acc-detail-type-label">You owe</div>
+          <div id="sw-card-owe" class="acc-detail-amount negative" style="font-size:20px">${state.currency}${fmt(owe)}</div>
+        </div>
+      </div>
+      <div class="acc-detail-type-label" style="text-align:center">Net balance</div>
+      <div id="sw-card-net" class="acc-detail-amount ${net >= 0 ? 'positive' : 'negative'}" style="font-size:24px;text-align:center">${net >= 0 ? '' : '-'}${state.currency}${fmt(Math.abs(net))}</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:10px">
+        <span style="font-size:11px;color:var(--text-3)">Synced <span id="sw-detail-sync-time">${syncTime}</span></span>
+        <button onclick="syncSplitwiseNow()" style="font-size:11px;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:0 4px">· Sync now</button>
+      </div>
+    </div>`;
+
+  // Update footer import button label
+  const importBtn = document.getElementById('sw-import-btn');
+  if (importBtn) {
+    const lastImport = lastImportRow?.value;
+    const today = new Date().toISOString().split('T')[0];
+    if (lastImport && lastImport < today) {
+      importBtn.childNodes[importBtn.childNodes.length - 1].textContent = `Import ${lastImport} → Today`;
+    } else {
+      importBtn.childNodes[importBtn.childNodes.length - 1].textContent = 'Import Expenses';
+    }
+  }
+
+  renderSplitwiseFriendsDetail();
+
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('account-detail-screen').classList.add('active');
+
+  // Background refresh if stale (> 12h)
+  const lastFetch = lastFetchRow?.value ? new Date(lastFetchRow.value) : null;
+  if (!lastFetch || Date.now() - lastFetch.getTime() > 12 * 3600 * 1000) {
+    refreshSplitwiseBalances(true);
+  }
+}
+
+async function openSplitwiseImport() {
+  const today         = new Date().toISOString().split('T')[0];
+  const lastImportRow = await db.settings.get('splitwiseLastImport');
+  const from          = lastImportRow?.value || new Date(Date.now() - 30 * 864e5).toISOString().split('T')[0];
+  document.getElementById('sw-import-from').value    = from;
   document.getElementById('sw-import-to').value      = today;
-  document.getElementById('sw-import-status').textContent = '';
+  document.getElementById('sw-import-status').textContent = lastImportRow?.value
+    ? `Last import: ${lastImportRow.value}`
+    : '';
   openOverlay('sw-import-sheet');
 }
 
@@ -2261,6 +2354,7 @@ async function fetchSplitwiseExpenses() {
       };
     });
 
+    await db.settings.put({ key: 'splitwiseLastImport', value: to });
     closeOverlay('sw-import-sheet');
     state.pendingMultiTxns = txns;
     state.multiTxnTotal    = txns.length;
