@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.44';
+const APP_VERSION = 'v1.45';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -2419,42 +2419,22 @@ async function resolveImportCategories(txns, onStatus) {
     merchantHintSet.add(t);
   }
 
-  // ── Pass 1: exact + prefix/fuzzy matches (no AI required) ───────────────
-  // Handles "Food" → "Food & Dining", "Transport" → "Transport", "Bills" → "Bills & Utilities"
-  function prefixMatchCat(catLow) {
-    if (!catLow || catLow.length < 3) return null;
-    // XLSX name is a prefix of DB category name ("Food" → "Food & Dining")
-    for (const [dbLow, cat] of catByLow) {
-      if (dbLow.startsWith(catLow)) return cat;
-    }
-    // DB category name is a prefix of XLSX name ("Transport" ← "Transportation")
-    for (const [dbLow, cat] of catByLow) {
-      if (catLow.startsWith(dbLow) && dbLow.length >= 4) return cat;
-    }
-    return null;
-  }
-
+  // ── Pass 1: exact matches ─────────────────────────────────────────────────
   const needsAI = [];
   for (const t of txns) {
     const catLow = (t.categoryName || '').toLowerCase();
     if (!catLow) { t.categoryId = null; t.subcategoryId = null; continue; }
 
     if (catByLow.has(catLow)) {
-      fillTxn(t); // exact match
+      fillTxn(t);
     } else {
-      const fuzzy = prefixMatchCat(catLow);
-      if (fuzzy) {
-        catAlias.set(catLow, { cat: fuzzy, subName: '' });
-        fillTxn(t); // prefix/fuzzy match — no AI needed
-      } else {
-        needsAI.push(t);
-        t.categoryId    ??= null;
-        t.subcategoryId ??= null;
-      }
+      needsAI.push(t);
+      t.categoryId    ??= null;
+      t.subcategoryId ??= null;
     }
   }
 
-  // Clean up merchant hints that resolved in Pass 1 (no AI needed for them)
+  // Clean up merchant hints that resolved via exact match
   for (const t of merchantHintSet) {
     if (t.categoryId) merchantHintSet.delete(t);
   }
@@ -2462,7 +2442,7 @@ async function resolveImportCategories(txns, onStatus) {
   if (!needsAI.length) return;
 
   // ── Pass 2: AI for unknowns ───────────────────────────────────────────────
-  // Deduplicate by category name only (same unknown cat with different subcats = one AI item)
+  // Deduplicate by category name (same unknown cat with different subcats = one AI item)
   const seenCats = new Set();
   const unknownArr = [];
   for (const t of needsAI) {
@@ -2484,13 +2464,13 @@ async function resolveImportCategories(txns, onStatus) {
   const unknownList = unknownArr.map((u, i) => `${i + 1}. "${u.catName}" / sub:"${u.subName}" (${u.type})`).join('\n');
 
   const prompt =
-    `You are a personal finance assistant. For each imported category below, either match it to the closest existing category or create a new one.\n\n` +
+    `You are a personal finance assistant. For each imported category below, match it to the closest existing category OR create a new one if it's clearly different.\n\n` +
     `Existing categories:\n${existingList}\n\n` +
     `Categories to resolve:\n${unknownList}\n\n` +
     `Reply with ONLY valid JSON, no markdown:\n` +
     `{"1":{"action":"match","cat":"ExistingName","sub":"ExistingSubOrEmpty"},...}\n` +
     `OR {"1":{"action":"create","cat":"NewName","icon":"emoji","type":"expense|income","sub":"SubNameOrEmpty","subIcon":"emojiOrEmpty"},...}\n` +
-    `Rules: match → use exact existing names; create → concise name + fitting emoji, type must be expense or income.`;
+    `Rules: prefer matching to an existing category when the meaning is similar (e.g. "Food" → "Food & Dining"); only create when genuinely different. type must be expense or income.`;
 
   const [keyRow, modelRow, enabledRow] = await Promise.all([
     db.settings.get('aiApiKey'), db.settings.get('aiModel'), db.settings.get('aiEnabled'),
@@ -2519,11 +2499,11 @@ async function resolveImportCategories(txns, onStatus) {
     } catch (e) { console.warn('[import] AI cat resolution failed:', e.message); }
   }
 
-  // Apply resolutions → update catByLow + catAlias + create missing DB rows
+  // Apply AI resolutions → update catByLow + catAlias + create DB rows
   let createdAny = false;
   for (let i = 0; i < unknownArr.length; i++) {
-    const u   = unknownArr[i];
-    const res = resolutions[String(i + 1)];
+    const u      = unknownArr[i];
+    const res    = resolutions[String(i + 1)];
     const origLow = u.catName.toLowerCase();
 
     if (res?.action === 'match') {
@@ -2548,7 +2528,35 @@ async function resolveImportCategories(txns, onStatus) {
         }
       }
     }
-    // No AI result → txn keeps its original categoryName with null IDs
+    // AI gave no result for this entry → handled by fallback below
+  }
+
+  // ── Fallback: create from exact column C name for anything still unresolved ─
+  // Runs when AI is disabled, API key missing, or AI couldn't classify an entry.
+  // Guarantees every imported category name ends up in the DB — no null IDs.
+  for (const u of unknownArr) {
+    const origLow = u.catName.toLowerCase();
+    if (catAlias.has(origLow)) continue; // AI already handled it
+    if (merchantHintSet.size && [...merchantHintSet].some(t => t.categoryName.toLowerCase() === origLow)) continue; // skip merchant hints
+
+    let cat = catByLow.get(origLow);
+    if (!cat?.id) {
+      const id = await db.categories.add({ name: u.catName, icon: '📦', type: u.type, color: '#F3F4F6' });
+      cat = { id, name: u.catName };
+      catByLow.set(origLow, cat);
+      createdAny = true;
+    }
+    catAlias.set(origLow, { cat, subName: u.subName });
+
+    // Also create the subcategory if specified
+    if (u.subName && cat.id) {
+      const subKey = `${cat.id}|${u.subName.toLowerCase()}`;
+      if (!subIdx.has(subKey)) {
+        const id = await db.subcategories.add({ name: u.subName, categoryId: cat.id, icon: '' });
+        subIdx.set(subKey, { id, name: u.subName, categoryId: cat.id });
+        createdAny = true;
+      }
+    }
   }
 
   if (createdAny) {
@@ -2556,11 +2564,10 @@ async function resolveImportCategories(txns, onStatus) {
     subIdx  = buildSubIdx(subcats);
   }
 
-  // Fill all AI-resolved txns
+  // Fill all resolved txns
   for (const t of needsAI) fillTxn(t);
 
-  // For merchant-hinted txns that AI couldn't resolve, clear the temporary categoryName
-  // so the transaction is stored cleanly with null category rather than the merchant name
+  // Clear temporary categoryName for merchant-hinted txns that still couldn't be resolved
   for (const t of merchantHintSet) {
     if (!t.categoryId) { t.categoryName = ''; t.subcategoryName = ''; }
   }
