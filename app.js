@@ -2577,16 +2577,16 @@ async function exportExcel() {
   const strs = []; const strIdx = {};
   const ss = s => { const k = String(s ?? ''); if (k in strIdx) return strIdx[k]; strIdx[k] = strs.length; strs.push(k); return strs.length-1; };
 
-  const COLS = 'ABCDEFGHIJK';
-  const HDRS = ['Period','Accounts','Category','Subcategory','Note','INR','Income/Expense','Description','Amount','Currency','Accounts'];
+  const COLS = 'ABCDEFGHIJKLMN';
+  const HDRS = ['Period','Accounts','Category','Subcategory','Note','INR','Income/Expense','Description','Amount','Currency','Accounts','Merchant','Tag','Splitwise ID'];
   HDRS.forEach(ss);
 
   // row format: array of {t:'s'|'n', v, s?:styleIdx}
   const headerRow = HDRS.map(h => ({ t:'s', v:ss(h) }));
   const dataRows  = txns.map(txn => {
-    const acc  = accById[txn.accountId] || '';
-    const type = txn.type === 'income' ? 'Income' : txn.type === 'transfer' ? 'Transfer-Out' : 'Exp.';
-    const note = txn.note || '';
+    const acc   = accById[txn.accountId] || '';
+    const type  = txn.type === 'income' ? 'Income' : txn.type === 'transfer' ? 'Transfer-Out' : 'Exp.';
+    const note  = txn.note || '';
     const merch = txn.merchant || '';
     return [
       { t:'n', v:_isoToExcel(txn.date || new Date().toISOString().split('T')[0]), s:1 },
@@ -2600,6 +2600,9 @@ async function exportExcel() {
       { t:'n', v:txn.amount },
       { t:'s', v:ss('INR') },
       { t:'s', v:ss(acc) },
+      { t:'s', v:ss(merch) },
+      { t:'s', v:ss(txn.tag || '') },
+      txn.splitwiseId ? { t:'n', v:txn.splitwiseId } : { t:'s', v:ss('') },
     ];
   });
 
@@ -2709,11 +2712,13 @@ async function importExcel(file) {
       const subcategoryName = cells['D'] || '';
       const subcategoryId   = subByName[subcategoryName.toLowerCase()] ?? null;
 
-      const merchant = cells['E'] || '';
+      // Col L (Merchant) takes precedence over col E when present
+      const merchant = cells['L'] || cells['E'] || '';
       const note     = cells['H'] || '';
+      const tag      = cells['M'] || null;
 
       txns.push({ type, amount, categoryId, subcategoryId, categoryName, subcategoryName,
-        accountId, date, note, merchant, receiptImage:null, tag:null, createdAt: now + ri });
+        accountId, date, note, merchant, receiptImage:null, tag, createdAt: now + ri });
     }
 
     if (!txns.length) { showToast(`No valid rows (${skipped} skipped)`); return; }
