@@ -18,6 +18,10 @@ db.version(3).stores({
   buckets: '++id, name, createdAt',
 });
 
+db.version(4).stores({
+  transactions: '++id, type, categoryId, subcategoryId, accountId, date, merchant, createdAt, tag, splitwiseId',
+});
+
 async function seedDefaults() {
   const catCount = await db.categories.count();
   if (catCount > 0) return;

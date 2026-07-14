@@ -242,6 +242,17 @@ function setupGlobalListeners() {
   document.getElementById('voice-lang').addEventListener('change', async e => {
     await db.settings.put({ key: 'voiceLang', value: e.target.value });
   });
+  document.getElementById('toggle-splitwise').addEventListener('click', async () => {
+    await toggleSetting('splitwiseEnabled', 'toggle-splitwise');
+    const on = document.getElementById('toggle-splitwise').classList.contains('on');
+    document.getElementById('splitwise-config').style.display = on ? 'block' : 'none';
+  });
+  document.getElementById('splitwise-proxy-url').addEventListener('change', async e => {
+    await db.settings.put({ key: 'splitwiseProxyUrl', value: e.target.value.trim() });
+    document.getElementById('splitwise-test-status').textContent = '—';
+    document.getElementById('splitwise-test-status').style.color = 'var(--text-3)';
+  });
+
   document.getElementById('multi-save-all-btn').addEventListener('click', () => bulkSaveTxns(state.pendingMultiTxns));
   document.getElementById('multi-review-btn').addEventListener('click', () => {
     if (!state.pendingMultiTxns.length) return;
@@ -1381,6 +1392,7 @@ async function refreshAccounts() {
     if (cat) budgetByCatName[cat.name] = b.amount;
   }
   renderBudgetManager(cats, budgetByCatName, {});
+  refreshSplitwiseBalances();
 }
 
 function accountRowHTML(a) {
@@ -1723,6 +1735,101 @@ async function saveTransfer() {
   showToast('Transfer saved');
 }
 
+// ─── Splitwise ───────────────────────────────────────────────────────────────
+async function splitwiseFetch(path, options = {}) {
+  const urlRow = await db.settings.get('splitwiseProxyUrl');
+  const proxyUrl = (urlRow?.value || '').trim().replace(/\/$/, '');
+  if (!proxyUrl) throw new Error('Proxy URL not configured');
+  const res = await fetch(proxyUrl + path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function testSplitwiseConnection() {
+  const statusEl = document.getElementById('splitwise-test-status');
+  statusEl.textContent = 'Testing…';
+  statusEl.style.color = 'var(--text-3)';
+  try {
+    const data = await splitwiseFetch('/get_current_user');
+    const user = data.user;
+    if (!user?.id) throw new Error('Invalid response');
+    await db.settings.put({ key: 'splitwiseUserId', value: user.id });
+    statusEl.textContent = `✓ ${user.first_name}`;
+    statusEl.style.color = 'var(--income)';
+  } catch (err) {
+    statusEl.textContent = '✕ Failed';
+    statusEl.style.color = 'var(--expense)';
+    console.warn('[Splitwise] connection test failed:', err.message);
+  }
+}
+
+async function refreshSplitwiseBalances() {
+  const card = document.getElementById('splitwise-balances-card');
+  const body = document.getElementById('splitwise-balances-body');
+  if (!card) return;
+  const [enabledRow, urlRow] = await Promise.all([
+    db.settings.get('splitwiseEnabled'),
+    db.settings.get('splitwiseProxyUrl'),
+  ]);
+  if (!enabledRow?.value || !urlRow?.value?.trim()) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+  body.innerHTML = '<p style="font-size:13px;color:var(--text-3)">Loading…</p>';
+  try {
+    const data = await splitwiseFetch('/get_friends');
+    const friends = (data.friends || []).filter(f => f.balance?.length > 0);
+
+    let totalOwed = 0, totalOwe = 0;
+    const rows = friends.map(f => {
+      const bal    = f.balance.find(b => b.currency_code === 'INR') || f.balance[0];
+      const amount = parseFloat(bal?.amount || 0);
+      if (amount === 0) return '';
+      if (amount > 0) totalOwed += amount;
+      else            totalOwe  += Math.abs(amount);
+      const name  = `${f.first_name} ${f.last_name || ''}`.trim();
+      const color = amount > 0 ? 'var(--income)' : 'var(--expense)';
+      const label = amount > 0 ? 'owes you' : 'you owe';
+      return `
+        <div style="display:flex;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+          <div style="width:34px;height:34px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--text-2);flex-shrink:0;margin-right:10px">
+            ${name.charAt(0).toUpperCase()}
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
+            <div style="font-size:11px;color:var(--text-3)">${label}</div>
+          </div>
+          <div style="font-size:14px;font-weight:700;color:${color};flex-shrink:0">${amount > 0 ? '+' : '-'}${state.currency}${fmt(Math.abs(amount))}</div>
+        </div>`;
+    }).filter(Boolean);
+
+    if (rows.length === 0) {
+      body.innerHTML = '<p style="font-size:13px;color:var(--text-3);text-align:center;padding:8px 0">All settled up! 🎉</p>';
+      return;
+    }
+
+    body.innerHTML = `
+      <div style="display:flex;margin-bottom:12px">
+        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(91,184,255,.08);border-radius:8px 0 0 8px">
+          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">You are owed</div>
+          <div style="font-size:16px;font-weight:700;color:var(--income)">${state.currency}${fmt(totalOwed)}</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(255,96,96,.08);border-radius:0 8px 8px 0">
+          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">You owe</div>
+          <div style="font-size:16px;font-weight:700;color:var(--expense)">${state.currency}${fmt(totalOwe)}</div>
+        </div>
+      </div>
+      ${rows.join('')}`;
+  } catch (err) {
+    body.innerHTML = `<p style="font-size:13px;color:var(--expense)">Could not load: ${err.message}</p>`;
+    console.warn('[Splitwise] balance fetch failed:', err.message);
+  }
+}
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 async function refreshSettings() {
   const settings = {};
@@ -1736,6 +1843,13 @@ async function refreshSettings() {
   setToggleVisual('toggle-ai',       settings.aiEnabled      ?? true);
   setToggleVisual('toggle-readback', settings.readbackEnabled ?? true);
   updateAIKeyHint(model);
+
+  const swEnabled = settings.splitwiseEnabled ?? false;
+  setToggleVisual('toggle-splitwise', swEnabled);
+  document.getElementById('splitwise-proxy-url').value  = settings.splitwiseProxyUrl || '';
+  document.getElementById('splitwise-config').style.display = swEnabled ? 'block' : 'none';
+  document.getElementById('splitwise-test-status').textContent = '—';
+  document.getElementById('splitwise-test-status').style.color = 'var(--text-3)';
 }
 
 function setToggleVisual(id, on) {

@@ -405,6 +405,16 @@
         <div class="net-worth-label">Net Worth</div>
         <div class="net-worth-amount" id="net-worth">₹0</div>
       </div>
+      <div id="splitwise-balances-card" style="display:none;margin:0 var(--px) 10px;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden">
+        <div style="display:flex;align-items:center;padding:12px var(--px);border-bottom:1px solid var(--border)">
+          <span style="font-size:16px;margin-right:8px">💸</span>
+          <span style="font-size:14px;font-weight:600;flex:1">Splitwise Balances</span>
+          <button onclick="refreshSplitwiseBalances()" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 0">↻</button>
+        </div>
+        <div id="splitwise-balances-body" style="padding:12px var(--px)">
+          <p style="font-size:13px;color:var(--text-3)">Loading…</p>
+        </div>
+      </div>
       <div class="acc-actions">
         <button class="btn btn-primary" id="open-add-account-btn" style="flex:1;padding:12px">+ Add Account</button>
         <button class="btn btn-outline" onclick="openTransferSheet()" style="flex:1;padding:12px">⇄ Transfer</button>
@@ -474,6 +484,25 @@
           <label for="ai-api-key">API Key</label>
           <input id="ai-api-key" type="password" placeholder="AIzaSy… or sk-ant-api03-…" style="max-width:100%;padding:8px 10px">
           <p id="ai-key-hint" style="font-size:11px;color:var(--text-3);margin-top:4px"></p>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Splitwise</div>
+        <div class="settings-row">
+          <label>Enable Splitwise</label>
+          <button id="toggle-splitwise" class="toggle"></button>
+        </div>
+        <div id="splitwise-config" style="display:none">
+          <div class="settings-row settings-row-full">
+            <label for="splitwise-proxy-url">Proxy URL</label>
+            <input id="splitwise-proxy-url" type="url" placeholder="https://your-worker.workers.dev" style="max-width:100%;padding:8px 10px">
+            <p style="font-size:11px;color:var(--text-3);margin-top:4px">Deploy the Cloudflare Worker proxy and paste its URL here</p>
+          </div>
+          <div class="settings-row" style="cursor:pointer" onclick="testSplitwiseConnection()">
+            <label style="cursor:pointer">Test Connection</label>
+            <span id="splitwise-test-status" style="font-size:13px;color:var(--text-3)">—</span>
+          </div>
         </div>
       </div>
 
