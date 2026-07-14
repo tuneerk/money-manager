@@ -1210,12 +1210,11 @@ function renderPieChart(sorted, total) {
   }
 
   for (const p of [...packY(rightGroup), ...packY(leftGroup)]) {
-    const right = Math.cos(p.midAngle) >= 0;
-    // Right labels: anchor="end" at textX, text extends LEFTWARD (stays within SVG)
-    // Left labels: anchor="start" at textX, text extends RIGHTWARD (stays within SVG)
-    const textX  = right ? W - 4 : 4;
-    const anchor = right ? 'end' : 'start';
-    const knee   = right ? cx + r + 14 : cx - r - 14;
+    const right  = Math.cos(p.midAngle) >= 0;
+    // Labels sit just outside the pie; short 12px horizontal stub + diagonal
+    const knee   = right ? cx + r + 10 : cx - r - 10;   // 276 or 84
+    const textX  = right ? cx + r + 22 : cx - r - 22;   // 288 or 72
+    const anchor = right ? 'start' : 'end';
 
     const ex = cx + r * Math.cos(p.midAngle);
     const ey = cy + r * Math.sin(p.midAngle);
