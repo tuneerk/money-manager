@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.43';
+const APP_VERSION = 'v1.44';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -2419,18 +2419,38 @@ async function resolveImportCategories(txns, onStatus) {
     merchantHintSet.add(t);
   }
 
-  // ── Pass 1: exact matches ─────────────────────────────────────────────────
+  // ── Pass 1: exact + prefix/fuzzy matches (no AI required) ───────────────
+  // Handles "Food" → "Food & Dining", "Transport" → "Transport", "Bills" → "Bills & Utilities"
+  function prefixMatchCat(catLow) {
+    if (!catLow || catLow.length < 3) return null;
+    // XLSX name is a prefix of DB category name ("Food" → "Food & Dining")
+    for (const [dbLow, cat] of catByLow) {
+      if (dbLow.startsWith(catLow)) return cat;
+    }
+    // DB category name is a prefix of XLSX name ("Transport" ← "Transportation")
+    for (const [dbLow, cat] of catByLow) {
+      if (catLow.startsWith(dbLow) && dbLow.length >= 4) return cat;
+    }
+    return null;
+  }
+
   const needsAI = [];
   for (const t of txns) {
     const catLow = (t.categoryName || '').toLowerCase();
-    if (catLow && catByLow.has(catLow)) {
-      fillTxn(t);
-    } else if (catLow) {
-      needsAI.push(t);
-      t.categoryId    ??= null;
-      t.subcategoryId ??= null;
+    if (!catLow) { t.categoryId = null; t.subcategoryId = null; continue; }
+
+    if (catByLow.has(catLow)) {
+      fillTxn(t); // exact match
     } else {
-      t.categoryId = null; t.subcategoryId = null;
+      const fuzzy = prefixMatchCat(catLow);
+      if (fuzzy) {
+        catAlias.set(catLow, { cat: fuzzy, subName: '' });
+        fillTxn(t); // prefix/fuzzy match — no AI needed
+      } else {
+        needsAI.push(t);
+        t.categoryId    ??= null;
+        t.subcategoryId ??= null;
+      }
     }
   }
 
