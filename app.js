@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.45';
+const APP_VERSION = 'v1.46';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -2441,8 +2441,10 @@ async function resolveImportCategories(txns, onStatus) {
 
   if (!needsAI.length) return;
 
+  console.log('[import] needsAI:', needsAI.length, '| merchant hints:', merchantHintSet.size);
+
   // ── Pass 2: AI for unknowns ───────────────────────────────────────────────
-  // Deduplicate by category name (same unknown cat with different subcats = one AI item)
+  // Deduplicate by category name only — subcategories are handled in a post-fill pass.
   const seenCats = new Set();
   const unknownArr = [];
   for (const t of needsAI) {
@@ -2453,6 +2455,8 @@ async function resolveImportCategories(txns, onStatus) {
       unknownArr.push({ catName: t.categoryName, subName: t.subcategoryName || '', type: typeKey });
     }
   }
+
+  console.log('[import] unknowns to AI:', unknownArr.map(u => u.catName));
 
   onStatus?.(`Resolving ${unknownArr.length} unknown categor${unknownArr.length > 1 ? 'ies' : 'y'} with AI…`);
 
@@ -2484,19 +2488,27 @@ async function resolveImportCategories(txns, onStatus) {
       if (model.startsWith('gemini')) {
         const r = await fetch(GEMINI_URL(apiKey, model), {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 800, temperature: 0 } }),
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 2048, temperature: 0 } }),
         });
-        text = (await r.json()).candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+        const gData = await r.json();
+        console.log('[import] Gemini raw:', JSON.stringify(gData).slice(0, 800));
+        text = gData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
       } else {
         const r = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({ model, max_tokens: 800, messages: [{ role: 'user', content: prompt }] }),
+          body: JSON.stringify({ model, max_tokens: 2048, messages: [{ role: 'user', content: prompt }] }),
         });
-        text = (await r.json()).content?.find(b => b.type === 'text')?.text || '{}';
+        const cData = await r.json();
+        console.log('[import] Claude raw:', JSON.stringify(cData).slice(0, 800));
+        text = cData.content?.find(b => b.type === 'text')?.text || '{}';
       }
+      console.log('[import] AI text:', text);
       resolutions = parseAIJson(text) || {};
-    } catch (e) { console.warn('[import] AI cat resolution failed:', e.message); }
+      console.log('[import] resolutions:', resolutions);
+    } catch (e) { console.warn('[import] AI cat resolution failed:', e); }
+  } else {
+    console.log('[import] AI disabled or no key — fallback only');
   }
 
   // Apply AI resolutions → update catByLow + catAlias + create DB rows
@@ -2508,8 +2520,12 @@ async function resolveImportCategories(txns, onStatus) {
 
     if (res?.action === 'match') {
       const cat = catByLow.get(res.cat?.toLowerCase());
-      if (cat?.id) catAlias.set(origLow, { cat, subName: res.sub || '' });
-
+      if (cat?.id) {
+        catAlias.set(origLow, { cat, subName: res.sub || '' });
+        console.log(`[import] AI matched "${u.catName}" → "${cat.name}"`);
+      } else {
+        console.warn(`[import] AI match target "${res.cat}" not in DB — fallback will handle`);
+      }
     } else if (res?.action === 'create') {
       let cat = catByLow.get(res.cat?.toLowerCase());
       if (!cat) {
@@ -2517,6 +2533,7 @@ async function resolveImportCategories(txns, onStatus) {
         cat = { id, name: res.cat };
         catByLow.set(res.cat.toLowerCase(), cat);
         createdAny = true;
+        console.log(`[import] AI created category "${res.cat}" id=${id}`);
       }
       catAlias.set(origLow, { cat, subName: res.sub || '' });
       if (res.sub && cat.id) {
@@ -2532,12 +2549,21 @@ async function resolveImportCategories(txns, onStatus) {
   }
 
   // ── Fallback: create from exact column C name for anything still unresolved ─
-  // Runs when AI is disabled, API key missing, or AI couldn't classify an entry.
-  // Guarantees every imported category name ends up in the DB — no null IDs.
+  // Skip only catNames where EVERY needsAI txn using that name is a merchant hint
+  // (no real column-C source). This prevents creating categories from merchant names
+  // while still creating them when the name came from column C of the spreadsheet.
+  const merchantHintOnlyCats = new Set();
+  for (const t of merchantHintSet) {
+    const catLow = t.categoryName.toLowerCase();
+    if (!needsAI.some(n => !merchantHintSet.has(n) && n.categoryName.toLowerCase() === catLow)) {
+      merchantHintOnlyCats.add(catLow);
+    }
+  }
+
   for (const u of unknownArr) {
     const origLow = u.catName.toLowerCase();
-    if (catAlias.has(origLow)) continue; // AI already handled it
-    if (merchantHintSet.size && [...merchantHintSet].some(t => t.categoryName.toLowerCase() === origLow)) continue; // skip merchant hints
+    if (catAlias.has(origLow)) continue;
+    if (merchantHintOnlyCats.has(origLow)) continue;
 
     let cat = catByLow.get(origLow);
     if (!cat?.id) {
@@ -2545,10 +2571,10 @@ async function resolveImportCategories(txns, onStatus) {
       cat = { id, name: u.catName };
       catByLow.set(origLow, cat);
       createdAny = true;
+      console.log(`[import] fallback created category "${u.catName}" id=${id}`);
     }
     catAlias.set(origLow, { cat, subName: u.subName });
 
-    // Also create the subcategory if specified
     if (u.subName && cat.id) {
       const subKey = `${cat.id}|${u.subName.toLowerCase()}`;
       if (!subIdx.has(subKey)) {
@@ -2564,13 +2590,33 @@ async function resolveImportCategories(txns, onStatus) {
     subIdx  = buildSubIdx(subcats);
   }
 
-  // Fill all resolved txns
+  // Fill categoryId/subcategoryId on all unresolved txns
   for (const t of needsAI) fillTxn(t);
 
-  // Clear temporary categoryName for merchant-hinted txns that still couldn't be resolved
+  // Second pass: create any subcategories present in txns but not yet in DB.
+  // This handles the case where multiple txns share a category but have different subcategories —
+  // only the first subName went to AI, the rest need to be created here.
+  for (const t of needsAI) {
+    if (!t.categoryId || !t.subcategoryName || t.subcategoryId) continue;
+    const subKey = `${t.categoryId}|${t.subcategoryName.toLowerCase()}`;
+    if (subIdx.has(subKey)) {
+      const sub = subIdx.get(subKey);
+      t.subcategoryId   = sub.id;
+      t.subcategoryName = sub.name;
+    } else {
+      const id = await db.subcategories.add({ name: t.subcategoryName, categoryId: t.categoryId, icon: '' });
+      subIdx.set(subKey, { id, name: t.subcategoryName, categoryId: t.categoryId });
+      t.subcategoryId = id;
+      console.log(`[import] created missing subcategory "${t.subcategoryName}" under catId=${t.categoryId}`);
+    }
+  }
+
+  // Clear temporary categoryName for merchant-hinted txns that couldn't be resolved
   for (const t of merchantHintSet) {
     if (!t.categoryId) { t.categoryName = ''; t.subcategoryName = ''; }
   }
+
+  console.log('[import] done — resolved', needsAI.filter(t => t.categoryId).length, '/', needsAI.length);
 }
 
 // Re-runs category resolution on all existing transactions that have no categoryId.
