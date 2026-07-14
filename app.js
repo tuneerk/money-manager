@@ -282,6 +282,11 @@ function setupGlobalListeners() {
     const on = document.getElementById('toggle-splitwise').classList.contains('on');
     document.getElementById('splitwise-config').style.display = on ? 'block' : 'none';
   });
+  document.getElementById('splitwise-api-key').addEventListener('change', async e => {
+    await db.settings.put({ key: 'splitwiseApiKey', value: e.target.value.trim() });
+    document.getElementById('splitwise-test-status').textContent = '—';
+    document.getElementById('splitwise-test-status').style.color = 'var(--text-3)';
+  });
   document.getElementById('splitwise-proxy-url').addEventListener('change', async e => {
     await db.settings.put({ key: 'splitwiseProxyUrl', value: e.target.value.trim() });
     document.getElementById('splitwise-test-status').textContent = '—';
@@ -1884,13 +1889,16 @@ async function saveTransfer() {
 
 // ─── Splitwise ───────────────────────────────────────────────────────────────
 async function splitwiseFetch(path, options = {}) {
-  const urlRow = await db.settings.get('splitwiseProxyUrl');
+  const [urlRow, keyRow] = await Promise.all([
+    db.settings.get('splitwiseProxyUrl'),
+    db.settings.get('splitwiseApiKey'),
+  ]);
   const proxyUrl = (urlRow?.value || '').trim().replace(/\/$/, '');
   if (!proxyUrl) throw new Error('Proxy URL not configured');
-  const res = await fetch(proxyUrl + path, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-  });
+  const apiKey = (keyRow?.value || '').trim();
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (apiKey) headers['X-Splitwise-Key'] = apiKey;
+  const res = await fetch(proxyUrl + path, { ...options, headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -2151,6 +2159,7 @@ async function refreshSettings() {
 
   const swEnabled = settings.splitwiseEnabled ?? false;
   setToggleVisual('toggle-splitwise', swEnabled);
+  document.getElementById('splitwise-api-key').value    = settings.splitwiseApiKey  || '';
   document.getElementById('splitwise-proxy-url').value  = settings.splitwiseProxyUrl || '';
   document.getElementById('splitwise-config').style.display = swEnabled ? 'block' : 'none';
   document.getElementById('splitwise-test-status').textContent = '—';

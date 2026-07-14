@@ -583,9 +583,14 @@
         </div>
         <div id="splitwise-config" style="display:none">
           <div class="settings-row settings-row-full">
+            <label for="splitwise-api-key">API Key</label>
+            <input id="splitwise-api-key" type="password" placeholder="Your Splitwise API key" style="max-width:100%;padding:8px 10px">
+            <p style="font-size:11px;color:var(--text-3);margin-top:4px">Get your key from Splitwise → Account Settings → API</p>
+          </div>
+          <div class="settings-row settings-row-full">
             <label for="splitwise-proxy-url">Proxy URL</label>
             <input id="splitwise-proxy-url" type="url" placeholder="https://your-worker.workers.dev" style="max-width:100%;padding:8px 10px">
-            <p style="font-size:11px;color:var(--text-3);margin-top:4px">Deploy the Cloudflare Worker proxy and paste its URL here</p>
+            <p style="font-size:11px;color:var(--text-3);margin-top:4px">Cloudflare Worker URL — forwards requests with your API key</p>
           </div>
           <div class="settings-row" style="cursor:pointer" onclick="testSplitwiseConnection()">
             <label style="cursor:pointer">Test Connection</label>
@@ -736,10 +741,7 @@
     <div id="receipt-preview-wrap" style="display:none;margin-bottom:14px">
       <img id="receipt-preview" style="max-width:100%;max-height:140px;border-radius:10px;object-fit:contain">
     </div>
-    <div style="display:flex;gap:10px">
-      <button id="cancel-txn-btn" class="btn btn-outline" style="flex:1" onclick="closeOverlay('add-sheet')">Cancel</button>
-      <button id="save-txn-btn" class="btn btn-primary" style="flex:2">Save</button>
-    </div>
+    <button id="save-txn-btn" class="btn btn-primary" style="width:100%">Save</button>
     <button id="multi-skip-btn" style="display:none;width:100%;margin-top:10px;background:none;border:none;color:var(--text-2);font-size:13px;cursor:pointer;padding:8px" onclick="saveRemainingMulti()">Save remaining <span id="multi-skip-count"></span> without review →</button>
   </div>
 </div>
