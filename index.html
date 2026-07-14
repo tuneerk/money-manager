@@ -406,10 +406,12 @@
         <div class="net-worth-amount" id="net-worth">₹0</div>
       </div>
       <div id="splitwise-balances-card" style="display:none;margin:0 var(--px) 10px;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden">
-        <div style="display:flex;align-items:center;padding:12px var(--px);border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;padding:12px var(--px);cursor:pointer" onclick="toggleSplitwiseBalances()">
           <span style="font-size:16px;margin-right:8px">💸</span>
           <span style="font-size:14px;font-weight:600;flex:1">Splitwise Balances</span>
-          <button onclick="refreshSplitwiseBalances()" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 0">↻</button>
+          <button onclick="event.stopPropagation();openSplitwiseImport()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-2);font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px;cursor:pointer;margin-right:8px">↓ Import</button>
+          <button onclick="event.stopPropagation();refreshSplitwiseBalances()" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 6px">↻</button>
+          <span id="sw-chevron" style="color:var(--text-3);font-size:16px;padding:4px 0 4px 4px;transition:transform .2s">▾</span>
         </div>
         <div id="splitwise-balances-body" style="padding:12px var(--px)">
           <p style="font-size:13px;color:var(--text-3)">Loading…</p>
@@ -963,6 +965,28 @@
 <div id="toast">
   <span id="toast-msg"></span>
   <button id="toast-undo">UNDO</button>
+</div>
+
+<!-- Splitwise Import Sheet -->
+<div class="overlay-bg" id="sw-import-sheet">
+  <div class="sheet">
+    <div class="sheet-header">
+      <div class="sheet-title">Import from Splitwise</div>
+      <button class="icon-btn" onclick="closeOverlay('sw-import-sheet')">✕</button>
+    </div>
+    <div style="padding:20px var(--px)">
+      <div style="margin-bottom:14px">
+        <label style="font-size:12px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">From</label>
+        <input type="date" id="sw-import-from" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:15px">
+      </div>
+      <div style="margin-bottom:24px">
+        <label style="font-size:12px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">To</label>
+        <input type="date" id="sw-import-to" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:15px">
+      </div>
+      <button onclick="fetchSplitwiseExpenses()" style="width:100%;padding:14px;background:var(--accent);border:none;border-radius:10px;color:white;font-size:15px;font-weight:600;cursor:pointer">Fetch Expenses</button>
+      <p id="sw-import-status" style="font-size:13px;color:var(--text-3);text-align:center;margin-top:14px;min-height:18px"></p>
+    </div>
+  </div>
 </div>
 
 <script src="dexie.min.js"></script>

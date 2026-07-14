@@ -64,6 +64,35 @@ const KEYWORD_MAP = {
   dividend:     ['Investment', ''],
 };
 
+const SW_CATEGORY_MAP = {
+  'Food and drink':       'Food & Dining',
+  'Groceries':            'Food & Dining',
+  'Restaurants':          'Food & Dining',
+  'Dining out':           'Food & Dining',
+  'Transportation':       'Transport',
+  'Gas/fuel':             'Transport',
+  'Parking':              'Transport',
+  'Taxi':                 'Transport',
+  'Public transit':       'Transport',
+  'Entertainment':        'Entertainment',
+  'Games':                'Entertainment',
+  'Movies':               'Entertainment',
+  'Music':                'Entertainment',
+  'Sports':               'Entertainment',
+  'Home':                 'Bills & Utilities',
+  'Rent':                 'Bills & Utilities',
+  'Utilities':            'Bills & Utilities',
+  'Household supplies':   'Bills & Utilities',
+  'Furniture':            'Bills & Utilities',
+  'Electronics':          'Shopping',
+  'Clothing':             'Shopping',
+  'Life & Personal':      'Shopping',
+  'Healthcare':           'Health',
+  'Fitness':              'Health',
+  'General':              'Other',
+  'Uncategorized':        'Other',
+};
+
 const BUCKET_ICONS  = ['🎯','🏖️','🏠','🚗','💍','✈️','🎓','💻','📱','🏋️','🛍️','🎮','🎵','👶','🐾','💊'];
 const BUCKET_COLORS = ['#54A0FF','#5F27CD','#10AC84','#FF9F43','#FECA57','#FF6B6B','#FF9FF3','#48DBFB','#EE5A24','#C8D6E5'];
 
@@ -126,6 +155,8 @@ const state = {
   addFundsBucketId:   null,
   selectedBucketIcon:  '🎯',
   selectedBucketColor: '#54A0FF',
+
+  splitwiseCollapsed: false,
 };
 
 // ─── Init ──────────────────────────────────────────────────────────────────
@@ -1828,6 +1859,80 @@ async function refreshSplitwiseBalances() {
     body.innerHTML = `<p style="font-size:13px;color:var(--expense)">Could not load: ${err.message}</p>`;
     console.warn('[Splitwise] balance fetch failed:', err.message);
   }
+  if (state.splitwiseCollapsed) {
+    body.style.display = 'none';
+    const chevron = document.getElementById('sw-chevron');
+    if (chevron) chevron.style.transform = 'rotate(-90deg)';
+  }
+}
+
+function toggleSplitwiseBalances() {
+  state.splitwiseCollapsed = !state.splitwiseCollapsed;
+  const body    = document.getElementById('splitwise-balances-body');
+  const chevron = document.getElementById('sw-chevron');
+  if (body)    body.style.display          = state.splitwiseCollapsed ? 'none'            : 'block';
+  if (chevron) chevron.style.transform     = state.splitwiseCollapsed ? 'rotate(-90deg)'  : 'rotate(0deg)';
+}
+
+function openSplitwiseImport() {
+  const today       = new Date().toISOString().split('T')[0];
+  const thirtyAgo   = new Date(Date.now() - 30 * 864e5).toISOString().split('T')[0];
+  document.getElementById('sw-import-from').value    = thirtyAgo;
+  document.getElementById('sw-import-to').value      = today;
+  document.getElementById('sw-import-status').textContent = '';
+  openOverlay('sw-import-sheet');
+}
+
+async function fetchSplitwiseExpenses() {
+  const from     = document.getElementById('sw-import-from').value;
+  const to       = document.getElementById('sw-import-to').value;
+  const statusEl = document.getElementById('sw-import-status');
+  if (!from || !to) { statusEl.textContent = 'Select a date range'; return; }
+  statusEl.textContent = 'Fetching expenses…';
+  try {
+    const userIdRow = await db.settings.get('splitwiseUserId');
+    const userId    = userIdRow?.value;
+    if (!userId) { statusEl.textContent = 'Test connection first to identify your account'; return; }
+
+    const existingTxns = await db.transactions.where('splitwiseId').above(0).toArray();
+    const existingIds  = new Set(existingTxns.map(t => t.splitwiseId));
+
+    const data     = await splitwiseFetch(`/get_expenses?dated_after=${from}T00:00:00Z&dated_before=${to}T23:59:59Z&limit=200`);
+    const expenses = data.expenses || [];
+    const txns     = [];
+
+    for (const exp of expenses) {
+      if (exp.deleted_at) continue;
+      if (exp.payment)    continue;
+      if (existingIds.has(exp.id)) continue;
+      const userEntry = exp.users?.find(u => u.user_id === userId || u.user?.id === userId);
+      const owed      = parseFloat(userEntry?.owed_share || 0);
+      if (owed <= 0) continue;
+      const catName = SW_CATEGORY_MAP[exp.category?.name] || 'Other';
+      txns.push({
+        type: 'expense', amount: owed,
+        categoryName: catName, subcategoryName: '',
+        merchant: exp.description || '',
+        date: (exp.date || '').split('T')[0] || new Date().toISOString().split('T')[0],
+        note: '', splitwiseId: exp.id,
+      });
+    }
+
+    if (txns.length === 0) {
+      statusEl.textContent = expenses.length > 0
+        ? `${expenses.length} expense(s) found — all already imported.`
+        : 'No expenses found in this period.';
+      return;
+    }
+
+    closeOverlay('sw-import-sheet');
+    state.pendingMultiTxns = txns;
+    state.multiTxnTotal    = txns.length;
+    renderMultiTxnList();
+    openOverlay('multi-txn-sheet');
+  } catch (err) {
+    statusEl.textContent = `Error: ${err.message}`;
+  }
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
@@ -2696,6 +2801,7 @@ async function saveMultiTxn(idx) {
     accountId: null, date: t.date || new Date().toISOString().split('T')[0],
     note: t.note || '', merchant: t.merchant || '',
     receiptImage: null, createdAt: Date.now(),
+    splitwiseId: t.splitwiseId || null,
   });
   state.pendingMultiTxns.splice(idx, 1);
   await refreshTxnList();
@@ -2710,7 +2816,7 @@ async function saveMultiTxn(idx) {
 
 async function bulkSaveTxns(txns) {
   for (const t of txns) {
-    await db.transactions.add({ type:t.type||'expense', amount:t.amount, categoryId:null, subcategoryId:null, categoryName:t.categoryName||'', subcategoryName:t.subcategoryName||'', accountId:null, date:t.date||new Date().toISOString().split('T')[0], note:t.note||'', merchant:t.merchant||'', receiptImage:null, createdAt:Date.now() });
+    await db.transactions.add({ type:t.type||'expense', amount:t.amount, categoryId:null, subcategoryId:null, categoryName:t.categoryName||'', subcategoryName:t.subcategoryName||'', accountId:null, date:t.date||new Date().toISOString().split('T')[0], note:t.note||'', merchant:t.merchant||'', receiptImage:null, createdAt:Date.now(), splitwiseId:t.splitwiseId||null });
   }
   closeOverlay('multi-txn-sheet');
   await refreshTxnList();
