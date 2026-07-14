@@ -151,6 +151,9 @@ const state = {
   selectedAccIcon:    '🏦',
   editingAccountId:   null,
   viewingAccountId:   null,
+  splitwiseFriends:   null,
+  splitwiseTotalOwed: 0,
+  splitwiseTotalOwe:  0,
   currency:           '₹',
 
   editingBucketId:    null,
@@ -1518,7 +1521,13 @@ async function saveBudget(categoryId, value) {
 
 // ─── Accounts ───────────────────────────────────────────────────────────────
 async function refreshAccounts() {
-  const accounts = await db.accounts.toArray();
+  const [accounts, swEnabledRow, swUrlRow] = await Promise.all([
+    db.accounts.toArray(),
+    db.settings.get('splitwiseEnabled'),
+    db.settings.get('splitwiseProxyUrl'),
+  ]);
+  const swEnabled = !!(swEnabledRow?.value && swUrlRow?.value?.trim());
+
   const assets      = accounts.filter(a => (a.balance || 0) >= 0).reduce((s, a) => s + (a.balance || 0), 0);
   const liabilities = accounts.filter(a => (a.balance || 0) <  0).reduce((s, a) => s + (a.balance || 0), 0);
   const total       = assets + liabilities;
@@ -1527,11 +1536,9 @@ async function refreshAccounts() {
   document.getElementById('acc-total').textContent       = `${state.currency}${fmt(Math.abs(total))}`;
 
   const list = document.getElementById('accounts-list');
-  if (accounts.length === 0) {
-    list.innerHTML = '<p class="empty-state">No accounts yet.</p>';
-  } else {
+  let html = '';
+  if (accounts.length > 0) {
     const groups = groupAccounts(accounts);
-    let html = '';
     for (const [groupName, items] of Object.entries(groups)) {
       if (items.length === 0) continue;
       const groupTotal = items.reduce((s, a) => s + (a.balance || 0), 0);
@@ -1543,8 +1550,22 @@ async function refreshAccounts() {
       }
       html += items.map(a => accountRowHTML(a)).join('');
     }
-    list.innerHTML = html;
   }
+
+  if (swEnabled) {
+    html += `<div class="acc-group-header"><span>Splitwise</span><span class="acc-group-total" id="sw-list-net">—</span></div>`;
+    html += `<div class="acc-cc-col-header"><span class="acc-cc-col-label">You are owed</span><span class="acc-cc-col-label" style="min-width:110px">You owe</span></div>`;
+    html += `<div class="account-row" onclick="openSplitwiseDetail()">
+      <div class="acc-row-name">🔄 Splitwise</div>
+      <div class="acc-row-right">
+        <div class="acc-row-bal zero" id="sw-list-owed">…</div>
+        <div class="acc-row-bal zero" id="sw-list-owe" style="min-width:110px">…</div>
+      </div>
+    </div>`;
+  }
+
+  if (!html) html = '<p class="empty-state">No accounts yet.</p>';
+  list.innerHTML = html;
 
   const cats    = await db.categories.where('type').equals('expense').toArray();
   const budgets = await db.budgets.toArray();
@@ -1682,6 +1703,9 @@ function closeAccountDetail() {
   document.getElementById('accounts-screen').classList.add('active');
   document.querySelectorAll('[data-tab]').forEach(b => b.classList.remove('active'));
   document.querySelector('[data-tab="accounts-screen"]')?.classList.add('active');
+  document.getElementById('acc-detail-edit-btn').style.display = '';
+  document.getElementById('acc-detail-section-label').textContent = 'Transactions';
+  document.getElementById('acc-detail-footer').style.display = 'none';
 }
 
 async function openAccountSheet(id = null) {
@@ -2003,87 +2027,107 @@ async function testSplitwiseConnection() {
 }
 
 async function refreshSplitwiseBalances() {
-  const card    = document.getElementById('splitwise-balances-card');
-  const summary = document.getElementById('splitwise-balances-summary');
-  const body    = document.getElementById('splitwise-balances-body');
-  if (!card) return;
-  const [enabledRow, urlRow] = await Promise.all([
-    db.settings.get('splitwiseEnabled'),
-    db.settings.get('splitwiseProxyUrl'),
-  ]);
-  if (!enabledRow?.value || !urlRow?.value?.trim()) {
-    card.style.display = 'none';
-    return;
-  }
-  card.style.display = 'block';
-  summary.innerHTML  = '';
-  body.innerHTML     = '<p style="font-size:13px;color:var(--text-3);padding:8px 0">Loading…</p>';
+  const owedEl = document.getElementById('sw-list-owed');
+  const oweEl  = document.getElementById('sw-list-owe');
+  const netEl  = document.getElementById('sw-list-net');
+  if (!owedEl) return;
+
   try {
     const data    = await splitwiseFetch('/get_friends');
     const friends = (data.friends || []).filter(f => f.balance?.length > 0);
 
     let totalOwed = 0, totalOwe = 0;
-    const rows = friends.map(f => {
+    const friendsData = [];
+    for (const f of friends) {
       const bal    = f.balance.find(b => b.currency_code === 'INR') || f.balance[0];
       const amount = parseFloat(bal?.amount || 0);
-      if (amount === 0) return '';
+      if (amount === 0) continue;
       if (amount > 0) totalOwed += amount;
       else            totalOwe  += Math.abs(amount);
-      const name  = `${f.first_name} ${f.last_name || ''}`.trim();
-      const color = amount > 0 ? 'var(--income)' : 'var(--expense)';
-      const label = amount > 0 ? 'owes you' : 'you owe';
-      return `
-        <div style="display:flex;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04)">
-          <div style="width:34px;height:34px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--text-2);flex-shrink:0;margin-right:10px">
-            ${name.charAt(0).toUpperCase()}
-          </div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
-            <div style="font-size:11px;color:var(--text-3)">${label}</div>
-          </div>
-          <div style="font-size:14px;font-weight:700;color:${color};flex-shrink:0">${amount > 0 ? '+' : '-'}${state.currency}${fmt(Math.abs(amount))}</div>
-        </div>`;
-    }).filter(Boolean);
+      friendsData.push({ name: `${f.first_name} ${f.last_name || ''}`.trim(), amount });
+    }
 
-    if (rows.length === 0) {
-      body.innerHTML = '<p style="font-size:13px;color:var(--text-3);text-align:center;padding:8px 0">All settled up! 🎉</p>';
-    } else {
-      summary.innerHTML = `
-        <div style="display:flex;padding:4px 0 8px">
-          <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(91,184,255,.08);border-radius:8px 0 0 8px">
-            <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">You are owed</div>
-            <div style="font-size:16px;font-weight:700;color:var(--income)">${state.currency}${fmt(totalOwed)}</div>
-          </div>
-          <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(255,96,96,.08);border-radius:0 8px 8px 0">
-            <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">You owe</div>
-            <div style="font-size:16px;font-weight:700;color:var(--expense)">${state.currency}${fmt(totalOwe)}</div>
-          </div>
-        </div>`;
-      body.innerHTML = rows.join('');
+    state.splitwiseFriends   = friendsData;
+    state.splitwiseTotalOwed = totalOwed;
+    state.splitwiseTotalOwe  = totalOwe;
+
+    const net = totalOwed - totalOwe;
+    owedEl.textContent = `${state.currency}${fmt(totalOwed)}`;
+    owedEl.className   = `acc-row-bal ${totalOwed > 0 ? 'positive' : 'zero'}`;
+    oweEl.textContent  = `${state.currency}${fmt(totalOwe)}`;
+    oweEl.className    = `acc-row-bal ${totalOwe > 0 ? 'negative' : 'zero'}`;
+    oweEl.style.minWidth = '110px';
+    if (netEl) {
+      netEl.textContent = `${net >= 0 ? '' : '-'}${state.currency}${fmt(Math.abs(net))}`;
     }
   } catch (err) {
-    summary.innerHTML = '';
-    body.innerHTML    = `<p style="font-size:13px;color:var(--expense)">Could not load: ${err.message}</p>`;
+    owedEl.textContent = '—';
+    oweEl.textContent  = '—';
     console.warn('[Splitwise] balance fetch failed:', err.message);
-  }
-  if (state.splitwiseCollapsed) {
-    body.style.display = 'none';
-    const footer  = document.getElementById('splitwise-balances-footer');
-    const chevron = document.getElementById('sw-chevron');
-    if (footer)  footer.style.display   = 'none';
-    if (chevron) chevron.style.transform = 'rotate(-90deg)';
   }
 }
 
-function toggleSplitwiseBalances() {
-  state.splitwiseCollapsed = !state.splitwiseCollapsed;
-  const body    = document.getElementById('splitwise-balances-body');
-  const footer  = document.getElementById('splitwise-balances-footer');
-  const chevron = document.getElementById('sw-chevron');
-  const show    = !state.splitwiseCollapsed;
-  if (body)    body.style.display    = show ? 'block' : 'none';
-  if (footer)  footer.style.display  = show ? 'block' : 'none';
-  if (chevron) chevron.style.transform = show ? 'rotate(0deg)' : 'rotate(-90deg)';
+async function openSplitwiseDetail() {
+  document.getElementById('acc-detail-heading').textContent = '🔄 Splitwise';
+  document.getElementById('acc-detail-edit-btn').style.display = 'none';
+  document.getElementById('acc-detail-section-label').textContent = 'Friends';
+  document.getElementById('acc-detail-footer').style.display = 'block';
+
+  const owed = state.splitwiseTotalOwed;
+  const owe  = state.splitwiseTotalOwe;
+  const net  = owed - owe;
+
+  document.getElementById('acc-detail-info').innerHTML = `
+    <div class="acc-detail-balance-card">
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(91,184,255,.08);border-radius:10px">
+          <div class="acc-detail-type-label">You are owed</div>
+          <div class="acc-detail-amount positive" style="font-size:20px">${state.currency}${fmt(owed)}</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(255,96,96,.08);border-radius:10px">
+          <div class="acc-detail-type-label">You owe</div>
+          <div class="acc-detail-amount negative" style="font-size:20px">${state.currency}${fmt(owe)}</div>
+        </div>
+      </div>
+      <div class="acc-detail-type-label" style="text-align:center">Net balance</div>
+      <div class="acc-detail-amount ${net >= 0 ? 'positive' : 'negative'}" style="font-size:24px;text-align:center">${net >= 0 ? '' : '-'}${state.currency}${fmt(Math.abs(net))}</div>
+    </div>`;
+
+  document.getElementById('acc-detail-txns').innerHTML =
+    '<p style="padding:16px var(--px);color:var(--text-3);font-size:13px">Loading…</p>';
+
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('account-detail-screen').classList.add('active');
+
+  if (!state.splitwiseFriends) {
+    try {
+      await refreshSplitwiseBalances();
+    } catch (_) {}
+  }
+
+  const friends = state.splitwiseFriends || [];
+  if (friends.length === 0) {
+    document.getElementById('acc-detail-txns').innerHTML = '<p class="empty-state">All settled up! 🎉</p>';
+    return;
+  }
+
+  const sorted = [...friends].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  document.getElementById('acc-detail-txns').innerHTML = sorted.map(f => {
+    const cls   = f.amount > 0 ? 'positive' : 'negative';
+    const label = f.amount > 0 ? 'owes you' : 'you owe';
+    const sign  = f.amount > 0 ? '+' : '-';
+    return `
+      <div class="account-row" style="-webkit-user-select:none;user-select:none">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--text-2);flex-shrink:0;margin-right:12px">
+          ${f.name.charAt(0).toUpperCase()}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.name}</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:1px">${label}</div>
+        </div>
+        <div class="acc-row-bal ${cls}">${sign}${state.currency}${fmt(Math.abs(f.amount))}</div>
+      </div>`;
+  }).join('');
 }
 
 function openSplitwiseImport() {
