@@ -1798,6 +1798,11 @@ async function testSplitwiseConnection() {
   const statusEl = document.getElementById('splitwise-test-status');
   statusEl.textContent = 'Testing…';
   statusEl.style.color = 'var(--text-3)';
+  // Flush field values to IDB now — don't wait for the blur/change event
+  await Promise.all([
+    db.settings.put({ key: 'splitwiseProxyUrl', value: document.getElementById('splitwise-proxy-url').value.trim() }),
+    db.settings.put({ key: 'splitwiseApiKey',   value: document.getElementById('splitwise-api-key').value.trim() }),
+  ]);
   try {
     const data = await splitwiseFetch('/get_current_user');
     const user = data.user;
