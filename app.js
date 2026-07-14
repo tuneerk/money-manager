@@ -2348,6 +2348,120 @@ async function swSelectChip(type) {
   document.getElementById('sw-import-to').value   = today;
 }
 
+// ─── Shared import-time category resolver ────────────────────────────────────
+// Inspects every txn's categoryName/subcategoryName; for any that don't exist
+// in the DB it fires ONE batched AI call to match-or-create, then upserts
+// missing category/subcategory rows and fills all txn IDs in-place.
+async function resolveImportCategories(txns, onStatus) {
+  const cats    = await db.categories.toArray();
+  const subcats = await db.subcategories.toArray();
+
+  const catByLow = new Map(cats.map(c => [c.name.toLowerCase(), c]));
+  const subByLow = new Map(subcats.map(s => [s.name.toLowerCase(), s]));
+
+  // Collect unique unknowns (case-insensitive miss against existing categories)
+  const unknownMap = new Map(); // key → {catName, subName, type}
+  for (const t of txns) {
+    const catLow = (t.categoryName || '').toLowerCase();
+    if (!catLow || catByLow.has(catLow)) continue;
+    const typeKey = t.type === 'transfer' ? 'expense' : t.type;
+    const key = `${typeKey}\x00${catLow}\x00${(t.subcategoryName || '').toLowerCase()}`;
+    if (!unknownMap.has(key)) unknownMap.set(key, { catName: t.categoryName, subName: t.subcategoryName || '', type: typeKey });
+  }
+
+  if (unknownMap.size > 0) {
+    onStatus?.(`Resolving ${unknownMap.size} unknown categor${unknownMap.size > 1 ? 'ies' : 'y'} with AI…`);
+
+    // Build the AI prompt
+    const subsByCatId = {};
+    for (const s of subcats) (subsByCatId[s.categoryId] = subsByCatId[s.categoryId] || []).push(s.name);
+    const existingList = cats
+      .map(c => `• ${c.icon || ''} ${c.name} [${c.type}]${subsByCatId[c.id]?.length ? ': ' + subsByCatId[c.id].join(', ') : ''}`)
+      .join('\n');
+    const unknownArr = [...unknownMap.values()];
+    const unknownList = unknownArr.map((u, i) => `${i + 1}. "${u.catName}" / sub:"${u.subName}" (${u.type})`).join('\n');
+
+    const prompt =
+      `You are a personal finance assistant. For each imported category below, either match it to the closest existing category or create a new one.\n\n` +
+      `Existing categories:\n${existingList}\n\n` +
+      `Categories to resolve:\n${unknownList}\n\n` +
+      `Reply with ONLY valid JSON, no markdown:\n` +
+      `{"1":{"action":"match","cat":"ExistingName","sub":"ExistingSubOrEmpty"},...}\n` +
+      `OR {"1":{"action":"create","cat":"NewName","icon":"emoji","type":"expense|income","sub":"SubNameOrEmpty","subIcon":"emojiOrEmpty"},...}\n` +
+      `Rules: match → use exact existing names; create → concise name + fitting emoji, type must be expense or income.`;
+
+    const [keyRow, modelRow, enabledRow] = await Promise.all([
+      db.settings.get('aiApiKey'), db.settings.get('aiModel'), db.settings.get('aiEnabled'),
+    ]);
+    let resolutions = {};
+    if ((enabledRow?.value ?? true) && keyRow?.value) {
+      const apiKey = keyRow.value.trim();
+      const model  = modelRow?.value || 'gemini-2.5-flash';
+      try {
+        let text;
+        if (model.startsWith('gemini')) {
+          const r = await fetch(GEMINI_URL(apiKey, model), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 800, temperature: 0 } }),
+          });
+          text = (await r.json()).candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+        } else {
+          const r = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+            body: JSON.stringify({ model, max_tokens: 800, messages: [{ role: 'user', content: prompt }] }),
+          });
+          text = (await r.json()).content?.find(b => b.type === 'text')?.text || '{}';
+        }
+        resolutions = parseAIJson(text) || {};
+      } catch (e) { console.warn('[import] AI cat resolution failed:', e.message); }
+    }
+
+    // Apply resolutions — create DB rows for any "create" actions
+    for (let i = 0; i < unknownArr.length; i++) {
+      const u   = unknownArr[i];
+      const key = `${u.type}\x00${u.catName.toLowerCase()}\x00${u.subName.toLowerCase()}`;
+      const res = resolutions[String(i + 1)];
+
+      if (res?.action === 'match') {
+        const cat = catByLow.get(res.cat?.toLowerCase());
+        const sub = res.sub ? subByLow.get(res.sub?.toLowerCase()) : null;
+        // Remap: overwrite the map so downstream txns pick this up
+        catByLow.set(u.catName.toLowerCase(), cat || { id: null, name: res.cat || u.catName });
+        if (sub) subByLow.set(u.subName.toLowerCase(), sub);
+      } else if (res?.action === 'create') {
+        let cat = catByLow.get(res.cat?.toLowerCase());
+        if (!cat) {
+          const id = await db.categories.add({ name: res.cat, icon: res.icon || '📦', type: res.type || u.type, color: '#F3F4F6' });
+          cat = { id, name: res.cat };
+          catByLow.set(res.cat.toLowerCase(), cat);
+        }
+        catByLow.set(u.catName.toLowerCase(), cat); // alias original → resolved
+        if (res.sub) {
+          let sub = subByLow.get(res.sub?.toLowerCase());
+          if (!sub) {
+            const id = await db.subcategories.add({ name: res.sub, categoryId: cat.id, icon: res.subIcon || '' });
+            sub = { id, name: res.sub };
+            subByLow.set(res.sub.toLowerCase(), sub);
+          }
+          subByLow.set(u.subName.toLowerCase(), sub);
+        }
+      }
+      // If no AI result: leave catByLow miss in place → ID stays null, name preserved
+    }
+  }
+
+  // Fill IDs on every txn (including already-matched ones)
+  for (const t of txns) {
+    const cat = catByLow.get((t.categoryName || '').toLowerCase());
+    const sub = subByLow.get((t.subcategoryName || '').toLowerCase());
+    if (cat) { t.categoryName = cat.name; t.categoryId = cat.id; }
+    if (sub) { t.subcategoryName = sub.name; t.subcategoryId = sub.id; }
+    t.categoryId    ??= null;
+    t.subcategoryId ??= null;
+  }
+}
+
 async function aiMapSplitwiseCategories(uniqueSwCats) {
   const [keyRow, modelRow, enabledRow] = await Promise.all([
     db.settings.get('aiApiKey'),
@@ -2470,6 +2584,10 @@ async function _doSplitwiseImport(from, to, onStatus, closeSheet) {
         note: '', splitwiseId: exp.id,
       };
     });
+
+    // Verify mapped names exist in DB; create any new categories via AI
+    onStatus('Resolving categories…');
+    await resolveImportCategories(txns, onStatus);
 
     state.pendingSplitwiseImportTo = to;
     if (closeSheet) closeOverlay('sw-import-sheet');
@@ -2794,13 +2912,9 @@ async function importExcel(file) {
     const rows = [...shDoc.querySelectorAll('row')];
     if (rows.length <= 1) { showToast('No data found'); return; }
 
-    // Lookup maps for matching accounts / categories
-    const accs    = await db.accounts.toArray();
-    const cats    = await db.categories.toArray();
-    const subcats = await db.subcategories.toArray();
+    // Lookup map for accounts only — categories are resolved via resolveImportCategories
+    const accs = await db.accounts.toArray();
     const accByName = Object.fromEntries(accs.map(a => [a.name.toLowerCase(), a.id]));
-    const catByName = Object.fromEntries(cats.map(c => [c.name.toLowerCase(), c.id]));
-    const subByName = Object.fromEntries(subcats.map(s => [s.name.toLowerCase(), s.id]));
 
     const txns = []; let skipped = 0; const now = Date.now();
 
@@ -2822,28 +2936,25 @@ async function importExcel(file) {
       const dateSerial = parseFloat(cells['A'] || '0');
       const date = dateSerial > 0 ? _excelToISO(dateSerial) : new Date().toISOString().split('T')[0];
 
-      // Account
-      const accName  = cells['B'] || '';
+      const accName   = cells['B'] || '';
       const accountId = accByName[accName.toLowerCase()] ?? null;
 
       // Category — strip leading emoji if present (e.g. "🚖 Transport" → "Transport")
       const rawCat = cells['C'] || '';
-      const categoryName = /^[^\x00-\x7F]/.test(rawCat) ? rawCat.replace(/^\S+\s*/, '') : rawCat;
-      const categoryId   = catByName[categoryName.toLowerCase()] ?? null;
-
+      const categoryName    = /^[^\x00-\x7F]/.test(rawCat) ? rawCat.replace(/^\S+\s*/, '') : rawCat;
       const subcategoryName = cells['D'] || '';
-      const subcategoryId   = subByName[subcategoryName.toLowerCase()] ?? null;
-
-      // Col L (Merchant) takes precedence over col E when present
       const merchant = cells['L'] || cells['E'] || '';
       const note     = cells['H'] || '';
       const tag      = cells['M'] || null;
 
-      txns.push({ type, amount, categoryId, subcategoryId, categoryName, subcategoryName,
-        accountId, date, note, merchant, receiptImage:null, tag, createdAt: now + ri });
+      txns.push({ type, amount, categoryId: null, subcategoryId: null, categoryName, subcategoryName,
+        accountId, date, note, merchant, receiptImage: null, tag, createdAt: now + ri });
     }
 
     if (!txns.length) { showToast(`No valid rows (${skipped} skipped)`); return; }
+
+    // Resolve categories: match to existing or create new ones via AI
+    await resolveImportCategories(txns, msg => showToast(msg));
 
     const ok = confirm(`Import ${txns.length} transaction${txns.length>1?'s':''}${skipped ? ` (${skipped} rows skipped)` : ''}?`);
     if (!ok) return;
