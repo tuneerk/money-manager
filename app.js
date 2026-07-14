@@ -2513,21 +2513,43 @@ function _buildZip(files) {
   return _cat(...locals, cdBuf, eocd);
 }
 
-// ── ZIP reader (handles STORED and DEFLATE) ──
+// ── ZIP reader (handles STORED and DEFLATE, including data-descriptor ZIPs) ──
+// Sizes are read from the Central Directory (always correct) rather than the
+// local file header (which may be zero when the data-descriptor flag is set).
 async function _readZipEntry(buffer, target) {
   const bytes = new Uint8Array(buffer);
   const view  = new DataView(buffer);
-  let i = 0;
-  while (i < bytes.length - 30) {
-    if (view.getUint32(i, true) !== 0x04034B50) { i++; continue; }
-    const method  = view.getUint16(i + 8,  true);
-    const compSz  = view.getUint32(i + 18, true);
-    const nameLen = view.getUint16(i + 26, true);
-    const extLen  = view.getUint16(i + 28, true);
-    const name    = new TextDecoder().decode(bytes.subarray(i + 30, i + 30 + nameLen));
-    const start   = i + 30 + nameLen + extLen;
-    const payload = bytes.subarray(start, start + compSz);
+
+  // Locate End of Central Directory record (scan backwards, allow ZIP comment up to 64 KB)
+  let eocdOff = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65558); i--) {
+    if (view.getUint32(i, true) === 0x06054B50) { eocdOff = i; break; }
+  }
+  if (eocdOff < 0) return null;
+
+  const cdOff   = view.getUint32(eocdOff + 16, true);
+  const cdCount = view.getUint16(eocdOff + 10, true);
+
+  // Walk Central Directory entries to find the target
+  let cdPos = cdOff;
+  for (let e = 0; e < cdCount; e++) {
+    if (view.getUint32(cdPos, true) !== 0x02014B50) break;
+    const method   = view.getUint16(cdPos + 10, true);
+    const compSz   = view.getUint32(cdPos + 20, true);
+    const nameLen  = view.getUint16(cdPos + 28, true);
+    const extLen   = view.getUint16(cdPos + 30, true);
+    const commLen  = view.getUint16(cdPos + 32, true);
+    const localOff = view.getUint32(cdPos + 42, true);
+    const name     = new TextDecoder().decode(bytes.subarray(cdPos + 46, cdPos + 46 + nameLen));
+
     if (name === target) {
+      // Read the local file header at localOff to find where the data actually starts
+      // (local extra field length can differ from CD extra field length)
+      const localNameLen = view.getUint16(localOff + 26, true);
+      const localExtLen  = view.getUint16(localOff + 28, true);
+      const dataStart    = localOff + 30 + localNameLen + localExtLen;
+      const payload      = bytes.subarray(dataStart, dataStart + compSz);
+
       if (method === 0) return new TextDecoder().decode(payload);
       if (method === 8) {
         const ds = new DecompressionStream('deflate-raw');
@@ -2540,8 +2562,9 @@ async function _readZipEntry(buffer, target) {
         let p = 0; for (const c of chunks) { out.set(c, p); p += c.length; }
         return new TextDecoder().decode(out);
       }
+      return null; // unsupported compression method
     }
-    i = start + compSz;
+    cdPos += 46 + nameLen + extLen + commLen;
   }
   return null;
 }
