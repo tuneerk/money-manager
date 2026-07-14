@@ -1,4 +1,4 @@
-const CACHE_NAME = 'money-manager-v34';
+const CACHE_NAME = 'money-manager-v35';
 const ASSETS = [
   './',
   './index.html',
@@ -8,8 +8,11 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
+  // cache: 'reload' bypasses the HTTP cache so install always gets the
+  // latest files from the network, not stale browser-cached copies.
+  const fresh = ASSETS.map(url => new Request(url, { cache: 'reload' }));
   e.waitUntil(
-    caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(c => c.addAll(fresh)).then(() => self.skipWaiting())
   );
 });
 
