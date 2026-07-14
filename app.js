@@ -1,5 +1,7 @@
 'use strict';
 
+const APP_VERSION = 'v1.40';
+
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
   zomato:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -184,6 +186,9 @@ async function init() {
       if (e.data?.type === 'SW_UPDATED') window.location.reload();
     });
   }
+
+  const verEl = document.getElementById('app-version-label');
+  if (verEl) verEl.textContent = APP_VERSION;
 
   await refreshTxnList();
   setupGlobalListeners();

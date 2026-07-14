@@ -613,7 +613,7 @@
               <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);cursor:pointer">
                 <input type="radio" name="export-fmt" value="xlsx" checked style="accent-color:var(--accent)"> Excel (.xlsx)
               </label>
-              <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);cursor:pointer">
+              <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);cursor:pointer;white-space:nowrap">
                 <input type="radio" name="export-fmt" value="json" style="accent-color:var(--accent)"> JSON (full backup)
               </label>
             </div>
@@ -643,7 +643,7 @@
       </div>
 
       <div style="text-align:center;padding:24px;font-size:12px;color:var(--text-3)">
-        Money Manager · All data stored on-device
+        Money Manager <span id="app-version-label"></span> · All data stored on-device
       </div>
     </div>
 
