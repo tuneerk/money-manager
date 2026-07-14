@@ -630,6 +630,14 @@
           </div>
           <span style="color:var(--text-3)">›</span>
         </div>
+        <div class="settings-row" style="cursor:pointer" onclick="checkForUpdates()">
+          <span style="font-size:18px">🔄</span>
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:600">Check for Updates</div>
+            <div style="font-size:12px;color:var(--text-2);margin-top:2px">Fetch latest version from network</div>
+          </div>
+          <span id="update-check-status" style="font-size:13px;color:var(--text-3)"></span>
+        </div>
       </div>
 
       <div style="text-align:center;padding:24px;font-size:12px;color:var(--text-3)">

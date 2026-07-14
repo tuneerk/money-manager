@@ -3366,6 +3366,29 @@ async function installPWA() {
   if (outcome === 'accepted') _installPrompt = null;
 }
 
+async function checkForUpdates() {
+  const statusEl = document.getElementById('update-check-status');
+  if (!('serviceWorker' in navigator)) { showToast('Service Worker not supported'); return; }
+  const reg = await navigator.serviceWorker.getRegistration().catch(() => null);
+  if (!reg) { showToast('App not installed as PWA'); return; }
+  if (statusEl) statusEl.textContent = 'Checking…';
+  try {
+    await reg.update();
+    if (reg.installing || reg.waiting) {
+      if (statusEl) statusEl.textContent = 'Updating…';
+      // SW activate event will force-reload the page automatically
+    } else {
+      if (statusEl) statusEl.textContent = 'Up to date';
+      showToast('Already up to date');
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Failed';
+    showToast('Update check failed — are you online?');
+    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', init);
 
 // ─── Gestures ────────────────────────────────────────────────────────────────
