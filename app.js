@@ -2200,15 +2200,13 @@ async function openSplitwiseDetail() {
     </div>`;
 
   // Update footer import button label
-  const importBtn = document.getElementById('sw-import-btn');
-  if (importBtn) {
+  const labelEl = document.getElementById('sw-import-btn-label');
+  if (labelEl) {
     const lastImport = lastImportRow?.value;
     const today = new Date().toISOString().split('T')[0];
-    if (lastImport && lastImport < today) {
-      importBtn.childNodes[importBtn.childNodes.length - 1].textContent = `Import ${lastImport} → Today`;
-    } else {
-      importBtn.childNodes[importBtn.childNodes.length - 1].textContent = 'Import Expenses';
-    }
+    labelEl.textContent = (lastImport && lastImport < today)
+      ? `Import ${lastImport} → Today`
+      : 'Import Expenses';
   }
 
   renderSplitwiseFriendsDetail();
@@ -2301,16 +2299,33 @@ async function aiMapSplitwiseCategories(uniqueSwCats) {
   }
 }
 
+// Called from the date-picker sheet; reads dates from DOM inputs
 async function fetchSplitwiseExpenses() {
-  const from     = document.getElementById('sw-import-from').value;
-  const to       = document.getElementById('sw-import-to').value;
+  const from = document.getElementById('sw-import-from').value;
+  const to   = document.getElementById('sw-import-to').value;
   const statusEl = document.getElementById('sw-import-status');
   if (!from || !to) { statusEl.textContent = 'Select a date range'; return; }
   statusEl.textContent = 'Fetching expenses…';
+  await _doSplitwiseImport(from, to, msg => { statusEl.textContent = msg; }, true);
+}
+
+// Called directly from the detail screen footer button (no sheet needed)
+async function importSinceLastPull() {
+  const today         = new Date().toISOString().split('T')[0];
+  const lastImportRow = await db.settings.get('splitwiseLastImport');
+  const from          = lastImportRow?.value || new Date(Date.now() - 30 * 864e5).toISOString().split('T')[0];
+  const importBtn     = document.getElementById('sw-import-btn');
+  if (importBtn) importBtn.disabled = true;
+  showToast('Fetching Splitwise expenses…');
+  await _doSplitwiseImport(from, today, msg => showToast(msg), false);
+  if (importBtn) importBtn.disabled = false;
+}
+
+async function _doSplitwiseImport(from, to, onStatus, closeSheet) {
   try {
     const userIdRow = await db.settings.get('splitwiseUserId');
     const userId    = userIdRow?.value;
-    if (!userId) { statusEl.textContent = 'Test connection first to identify your account'; return; }
+    if (!userId) { onStatus('Test connection first in Settings → Splitwise'); return; }
 
     const existingTxns = await db.transactions.where('splitwiseId').above(0).toArray();
     const existingIds  = new Set(existingTxns.map(t => t.splitwiseId));
@@ -2318,7 +2333,6 @@ async function fetchSplitwiseExpenses() {
     const data     = await splitwiseFetch(`/get_expenses?dated_after=${from}T00:00:00Z&dated_before=${to}T23:59:59Z&limit=200`);
     const expenses = data.expenses || [];
 
-    // Collect eligible expenses first so we can batch-map categories
     const eligible = [];
     for (const exp of expenses) {
       if (exp.deleted_at) continue;
@@ -2331,15 +2345,14 @@ async function fetchSplitwiseExpenses() {
     }
 
     if (eligible.length === 0) {
-      statusEl.textContent = expenses.length > 0
+      onStatus(expenses.length > 0
         ? `${expenses.length} expense(s) found — all already imported.`
-        : 'No expenses found in this period.';
+        : 'No new expenses found in this period.');
       return;
     }
 
-    // Batch-map categories via AI (one call for the whole import)
     const uniqueSwCats = [...new Set(eligible.map(({ exp }) => exp.category?.name).filter(Boolean))];
-    statusEl.textContent = 'Mapping categories…';
+    onStatus('Mapping categories…');
     const aiMap = await aiMapSplitwiseCategories(uniqueSwCats);
 
     const txns = eligible.map(({ exp, owed }) => {
@@ -2355,13 +2368,13 @@ async function fetchSplitwiseExpenses() {
     });
 
     await db.settings.put({ key: 'splitwiseLastImport', value: to });
-    closeOverlay('sw-import-sheet');
+    if (closeSheet) closeOverlay('sw-import-sheet');
     state.pendingMultiTxns = txns;
     state.multiTxnTotal    = txns.length;
     renderMultiTxnList();
     openOverlay('multi-txn-sheet');
   } catch (err) {
-    statusEl.textContent = `Error: ${err.message}`;
+    onStatus(`Error: ${err.message}`);
   }
 }
 
