@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.41';
+const APP_VERSION = 'v1.42';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -2498,6 +2498,54 @@ async function resolveImportCategories(txns, onStatus) {
 
   // Fill all AI-resolved txns
   for (const t of needsAI) fillTxn(t);
+}
+
+// Re-runs category resolution on all existing transactions that have no categoryId.
+// For transactions with an empty categoryName, the merchant name is used as a hint for AI.
+async function recategorizeUncategorized() {
+  const uncategorized = await db.transactions
+    .filter(t => !t.categoryId && t.type !== 'transfer')
+    .toArray();
+
+  if (!uncategorized.length) { showToast('All transactions already have categories'); return; }
+
+  showToast(`Checking ${uncategorized.length} uncategorized transactions…`);
+
+  // For txns with empty categoryName, use merchant name as context for AI matching
+  const merchantFallback = new Set();
+  for (const t of uncategorized) {
+    if (!t.categoryName && t.merchant) {
+      t.categoryName = t.merchant;
+      merchantFallback.add(t.id);
+    }
+  }
+
+  await resolveImportCategories(uncategorized, msg => showToast(msg));
+
+  // For merchant-fallback txns that AI couldn't resolve, clear the temp categoryName
+  for (const t of uncategorized) {
+    if (merchantFallback.has(t.id) && !t.categoryId) t.categoryName = '';
+  }
+
+  const resolved = uncategorized.filter(t => t.categoryId);
+  if (!resolved.length) {
+    showToast('No categories resolved — check AI settings or add an API key');
+    return;
+  }
+
+  await db.transaction('rw', db.transactions, async () => {
+    for (const t of resolved) {
+      await db.transactions.update(t.id, {
+        categoryId:      t.categoryId,
+        subcategoryId:   t.subcategoryId  || null,
+        categoryName:    t.categoryName   || '',
+        subcategoryName: t.subcategoryName || '',
+      });
+    }
+  });
+
+  await Promise.all([refreshTxnList(), refreshReports()]);
+  showToast(`Fixed ${resolved.length} of ${uncategorized.length} transactions ✓`, true);
 }
 
 async function aiMapSplitwiseCategories(uniqueSwCats) {

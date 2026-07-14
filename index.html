@@ -642,6 +642,13 @@
             <span style="color:var(--text-3)">↑</span>
             <input type="file" id="import-excel-input" accept=".xlsx" style="display:none">
           </div>
+          <div class="settings-row" style="cursor:pointer" onclick="recategorizeUncategorized()">
+            <label style="cursor:pointer;flex:1">
+              <div style="font-size:14px;color:var(--text)">Fix Uncategorized Transactions</div>
+              <div style="font-size:12px;color:var(--text-2);margin-top:2px">Re-run AI matching on transactions with no category</div>
+            </label>
+            <span style="color:var(--text-3)">›</span>
+          </div>
           <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:10px">
             <span style="font-size:14px;color:var(--text)">Export</span>
             <div style="display:flex;gap:20px">
