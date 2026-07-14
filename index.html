@@ -357,13 +357,11 @@
     .autocat-name { font-size: 12px; color: var(--text); text-align: center; }
 
     /* ── Multi-Txn Sheet ── */
-    .multi-txn-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
-    .multi-txn-info { flex: 1; }
-    .multi-txn-type { font-size: 15px; font-weight: 700; display: block; }
-    .multi-txn-type.expense { color: var(--expense); }
-    .multi-txn-type.income  { color: var(--income); }
-    .multi-txn-cat  { font-size: 13px; color: var(--text-2); }
-    .multi-txn-note { font-size: 12px; color: var(--text-3); }
+    .multi-txn-card-inner { background:var(--surface2);border:1.5px solid var(--border);border-radius:16px;padding:22px 20px;min-height:130px; }
+    .multi-txn-card-amount { font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;margin-bottom:10px; }
+    .multi-txn-card-merchant { font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .multi-txn-card-cat { font-size:13px;color:var(--text-2);margin-bottom:4px; }
+    .multi-txn-card-date { font-size:12px;color:var(--text-3); }
 
     /* ── Merchant Map ── */
     .merchant-row { display: flex; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
@@ -764,7 +762,6 @@
       <img id="receipt-preview" style="max-width:100%;max-height:140px;border-radius:10px;object-fit:contain">
     </div>
     <button id="save-txn-btn" class="btn btn-primary" style="width:100%">Save</button>
-    <button id="multi-skip-btn" style="display:none;width:100%;margin-top:10px;background:none;border:none;color:var(--text-2);font-size:13px;cursor:pointer;padding:8px" onclick="saveRemainingMulti()">Save remaining <span id="multi-skip-count"></span> without review →</button>
   </div>
 </div>
 
@@ -876,11 +873,21 @@
 <div id="multi-txn-sheet" class="overlay-bg">
   <div class="sheet">
     <div class="sheet-handle"></div>
-    <div class="sheet-title">Multiple Transactions Found</div>
-    <div id="multi-txn-list"></div>
-    <div class="btn-row">
-      <button id="multi-save-all-btn" class="btn btn-primary">Save All</button>
-      <button id="multi-review-btn"   class="btn btn-outline">Review Each</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div class="sheet-title" style="margin-bottom:0">Review Transactions</div>
+      <div id="multi-txn-counter" style="font-size:12px;font-weight:600;color:var(--text-3);background:var(--surface2);border:1px solid var(--border);padding:3px 10px;border-radius:20px"></div>
+    </div>
+    <div id="multi-txn-card-wrap" style="overflow:hidden;position:relative;touch-action:pan-y">
+      <div id="multi-txn-card" style="will-change:transform;transition:transform .22s ease,opacity .22s ease"></div>
+    </div>
+    <p style="text-align:center;font-size:11px;color:var(--text-3);margin:8px 0 0">swipe left / right to navigate</p>
+    <div class="btn-row" style="margin-top:14px">
+      <button onclick="discardMultiTxnCurrent()" class="btn btn-outline" style="color:var(--expense);border-color:var(--expense)">✕ Discard</button>
+      <button onclick="saveMultiTxnCurrent()" class="btn btn-primary">✓ Save</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:10px">
+      <button id="multi-save-all-btn" style="background:none;border:none;color:var(--text-3);font-size:13px;cursor:pointer;padding:4px 0">Save all remaining</button>
+      <button onclick="editMultiTxnCurrent()" style="background:none;border:none;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;padding:4px 0">✎ Edit</button>
     </div>
   </div>
 </div>

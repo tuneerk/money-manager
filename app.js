@@ -145,6 +145,7 @@ const state = {
   voiceMode:        'idle',
   pendingMultiTxns: [],
   pendingSplitwiseImportTo: null,
+  multiTxnIdx: 0,
   editingMultiIdx:  null,
   readbackEnabled:  true,
 
@@ -320,11 +321,6 @@ function setupGlobalListeners() {
   });
 
   document.getElementById('multi-save-all-btn').addEventListener('click', () => bulkSaveTxns(state.pendingMultiTxns));
-  document.getElementById('multi-review-btn').addEventListener('click', () => {
-    if (!state.pendingMultiTxns.length) return;
-    closeOverlay('multi-txn-sheet');
-    startMultiTxnReview([...state.pendingMultiTxns]);
-  });
 
   document.getElementById('save-bucket-btn').addEventListener('click', saveBucket);
   document.getElementById('delete-bucket-btn').addEventListener('click', deleteBucket);
@@ -440,7 +436,7 @@ function closeOverlay(id) {
   if (id === 'add-sheet') {
     if (state.editingMultiIdx !== null) {
       state.editingMultiIdx = null;
-      renderMultiTxnList();
+      _renderMultiTxnCard();
       openOverlay('multi-txn-sheet');
       return;
     }
@@ -448,7 +444,6 @@ function closeOverlay(id) {
     state.editingTxnOld = null;
     state.pendingMultiTxns = [];
     state.multiTxnTotal    = 0;
-    document.getElementById('multi-skip-btn').style.display = 'none';
   }
 }
 
@@ -1065,40 +1060,24 @@ async function saveTransaction() {
     }
   }
 
-  closeOverlay('add-sheet');
-  await refreshTxnList();
-
   if (state.editingMultiIdx !== null) {
-    state.pendingMultiTxns.splice(state.editingMultiIdx, 1);
+    const idx = state.editingMultiIdx;
     state.editingMultiIdx = null;
+    state.pendingMultiTxns.splice(idx, 1);
+    closeOverlay('add-sheet');
+    await refreshTxnList();
     if (state.pendingMultiTxns.length > 0) {
-      renderMultiTxnList();
+      if (state.multiTxnIdx >= state.pendingMultiTxns.length) state.multiTxnIdx = state.pendingMultiTxns.length - 1;
+      _renderMultiTxnCard();
       openOverlay('multi-txn-sheet');
     } else {
-      if (state.pendingSplitwiseImportTo) {
-        await db.settings.put({ key: 'splitwiseLastImport', value: state.pendingSplitwiseImportTo });
-        state.pendingSplitwiseImportTo = null;
-      }
-      showToast('All transactions saved');
+      await _multiTxnFinalize('All transactions saved');
     }
     return;
   }
 
-  if (state.pendingMultiTxns.length > 0) {
-    const next = state.pendingMultiTxns.shift();
-    const idx  = state.multiTxnTotal - state.pendingMultiTxns.length;
-    showToast(`Transaction ${idx - 1} of ${state.multiTxnTotal} saved`);
-    await sleep(350);
-    await openMultiTxnStep(next, idx);
-    return;
-  }
-
-  // Last transaction in a sequential review — save Splitwise import date now
-  if (state.pendingSplitwiseImportTo) {
-    await db.settings.put({ key: 'splitwiseLastImport', value: state.pendingSplitwiseImportTo });
-    state.pendingSplitwiseImportTo = null;
-  }
-
+  closeOverlay('add-sheet');
+  await refreshTxnList();
   showToast(`${state.currentType === 'income' ? 'Income' : 'Expense'} saved`, true);
 }
 
@@ -2964,47 +2943,6 @@ async function openAddSheetFromParsed(parsed) {
   });
 }
 
-async function startMultiTxnReview(txns) {
-  state.pendingMultiTxns = txns.slice(1);
-  state.multiTxnTotal    = txns.length;
-  await openMultiTxnStep(txns[0], 1);
-}
-
-async function openMultiTxnStep(txn, index) {
-  await openAddSheet(txn.type || 'expense', {
-    amount: txn.amount, merchant: txn.merchant || '',
-    date: txn.date, note: txn.note,
-    categoryName: txn.categoryName || '', subcategoryName: txn.subcategoryName || '',
-  });
-  document.getElementById('add-sheet-title').textContent = `Transaction ${index} of ${state.multiTxnTotal}`;
-  const remaining = state.multiTxnTotal - index;
-  const skipBtn   = document.getElementById('multi-skip-btn');
-  if (remaining > 0) {
-    document.getElementById('multi-skip-count').textContent = remaining;
-    skipBtn.style.display = 'block';
-  } else {
-    skipBtn.style.display = 'none';
-  }
-}
-
-async function saveRemainingMulti() {
-  const remaining = [...state.pendingMultiTxns];
-  state.pendingMultiTxns = [];
-  state.multiTxnTotal    = 0;
-  closeOverlay('add-sheet');
-  const now = Date.now();
-  await db.transactions.bulkAdd(remaining.map((t, i) => ({
-    type: t.type || 'expense', amount: t.amount,
-    categoryId: null, subcategoryId: null,
-    categoryName: t.categoryName || '', subcategoryName: t.subcategoryName || '',
-    accountId: null,
-    date: t.date || new Date().toISOString().split('T')[0],
-    note: t.note || '', merchant: t.merchant || '',
-    receiptImage: null, tag: null, createdAt: now + i,
-  })));
-  await refreshTxnList();
-  showToast(`${remaining.length} more transaction${remaining.length > 1 ? 's' : ''} saved`);
-}
 
 async function openAutoCatSheet(merchantName) {
   state.autocatData = { merchantName, selectedCat: null };
@@ -3226,44 +3164,109 @@ async function extractReceiptGemini(imageB64, apiKey, model = 'gemini-2.5-flash'
 function openMultiTxnConfirmSheet(txns) {
   state.pendingMultiTxns = [...txns];
   state.multiTxnTotal    = txns.length;
+  state.multiTxnIdx      = 0;
   renderMultiTxnList();
   closeOverlay('voice-sheet');
   openOverlay('multi-txn-sheet');
 }
 
 function renderMultiTxnList() {
-  const txns = state.pendingMultiTxns;
-  const el = document.getElementById('multi-txn-list');
-  if (!el) return;
-  el.innerHTML = txns.map((t, i) => `
-    <div class="multi-txn-row">
-      <div class="multi-txn-info">
-        <span class="multi-txn-type ${t.type||'expense'}">${t.type==='income'?'+':'-'}${state.currency}${fmt(t.amount)}</span>
-        <span class="multi-txn-cat">${t.categoryName||'Uncategorised'} ${t.subcategoryName ? '· '+t.subcategoryName : ''}</span>
-        <span class="multi-txn-note">${t.merchant||t.note||''}</span>
-      </div>
-      <div style="display:flex;gap:5px;flex-shrink:0">
-        <button class="btn-sm btn-sm-success" onclick="saveMultiTxn(${i})" title="Save">✓</button>
-        <button class="btn-sm" onclick="editMultiTxn(${i})" title="Edit">✎</button>
-        <button class="btn-sm btn-sm-danger" onclick="deleteMultiTxn(${i})" title="Discard">✕</button>
-      </div>
-    </div>`).join('');
-  const titleEl = document.querySelector('#multi-txn-sheet .sheet-title');
-  if (titleEl) titleEl.textContent = `${txns.length} Transaction${txns.length !== 1 ? 's' : ''} Found`;
+  state.multiTxnIdx = 0;
+  _renderMultiTxnCard();
+  _setupMultiTxnSwipe();
 }
 
-function deleteMultiTxn(idx) {
-  state.pendingMultiTxns.splice(idx, 1);
-  if (state.pendingMultiTxns.length === 0) {
-    closeOverlay('multi-txn-sheet');
-    showToast('Transaction discarded');
+function _renderMultiTxnCard() {
+  const txns    = state.pendingMultiTxns;
+  const idx     = state.multiTxnIdx;
+  const card    = document.getElementById('multi-txn-card');
+  const counter = document.getElementById('multi-txn-counter');
+  if (!card) return;
+  if (txns.length === 0) { closeOverlay('multi-txn-sheet'); return; }
+  if (counter) counter.textContent = `${idx + 1} / ${txns.length}`;
+  const t     = txns[idx];
+  const sign  = t.type === 'income' ? '+' : '-';
+  const color = t.type === 'income' ? 'var(--income)' : 'var(--expense)';
+  card.innerHTML = `
+    <div class="multi-txn-card-inner">
+      <div class="multi-txn-card-amount" style="color:${color}">${sign}${state.currency}${fmt(t.amount)}</div>
+      <div class="multi-txn-card-merchant">${t.merchant || t.note || '—'}</div>
+      <div class="multi-txn-card-cat">${t.categoryName || 'Uncategorised'}${t.subcategoryName ? ' · ' + t.subcategoryName : ''}</div>
+      <div class="multi-txn-card-date">${t.date || ''}</div>
+    </div>`;
+  card.style.transform = '';
+  card.style.opacity   = '1';
+}
+
+function _setupMultiTxnSwipe() {
+  const wrap = document.getElementById('multi-txn-card-wrap');
+  if (!wrap || wrap.dataset.swipeSetup) return;
+  wrap.dataset.swipeSetup = '1';
+  let startX = 0, startY = 0, dragging = false;
+  wrap.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    dragging = true;
+    const card = document.getElementById('multi-txn-card');
+    if (card) card.style.transition = 'none';
+  }, { passive: true });
+  wrap.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if (Math.abs(dy) > Math.abs(dx) + 5) { dragging = false; return; }
+    const card = document.getElementById('multi-txn-card');
+    if (card) card.style.transform = `translateX(${dx}px)`;
+  }, { passive: true });
+  wrap.addEventListener('touchend', e => {
+    if (!dragging) return;
+    dragging = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const card = document.getElementById('multi-txn-card');
+    if (card) card.style.transition = 'transform .22s ease, opacity .22s ease';
+    if (Math.abs(dx) > 60) {
+      _multiTxnSlide(dx < 0 ? 1 : -1);
+    } else {
+      if (card) card.style.transform = '';
+    }
+  }, { passive: true });
+}
+
+function _multiTxnSlide(dir) {
+  const txns   = state.pendingMultiTxns;
+  const newIdx = state.multiTxnIdx + dir;
+  const card   = document.getElementById('multi-txn-card');
+  if (newIdx < 0 || newIdx >= txns.length) {
+    if (card) card.style.transform = '';
     return;
   }
-  renderMultiTxnList();
+  const wrapW = document.getElementById('multi-txn-card-wrap')?.offsetWidth || 320;
+  if (card) {
+    card.style.transition = 'transform .18s ease, opacity .18s ease';
+    card.style.transform  = `translateX(${dir > 0 ? -wrapW : wrapW}px)`;
+    card.style.opacity    = '0';
+  }
+  setTimeout(() => {
+    state.multiTxnIdx = newIdx;
+    _renderMultiTxnCard();
+    if (card) {
+      card.style.transition = 'none';
+      card.style.transform  = `translateX(${dir > 0 ? wrapW : -wrapW}px)`;
+      card.style.opacity    = '0';
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (card) {
+        card.style.transition = 'transform .22s ease, opacity .22s ease';
+        card.style.transform  = '';
+        card.style.opacity    = '1';
+      }
+    }));
+  }, 190);
 }
 
-async function saveMultiTxn(idx) {
-  const t = state.pendingMultiTxns[idx];
+async function saveMultiTxnCurrent() {
+  const t = state.pendingMultiTxns[state.multiTxnIdx];
+  if (!t) return;
   await db.transactions.add({
     type: t.type || 'expense', amount: t.amount,
     categoryId: null, subcategoryId: null,
@@ -3273,43 +3276,59 @@ async function saveMultiTxn(idx) {
     receiptImage: null, createdAt: Date.now(),
     splitwiseId: t.splitwiseId || null,
   });
-  state.pendingMultiTxns.splice(idx, 1);
+  const label = t.merchant || t.categoryName || 'transaction';
+  state.pendingMultiTxns.splice(state.multiTxnIdx, 1);
   await refreshTxnList();
   if (state.pendingMultiTxns.length === 0) {
-    closeOverlay('multi-txn-sheet');
-    showToast('All transactions saved');
+    await _multiTxnFinalize('All transactions saved');
     return;
   }
-  renderMultiTxnList();
-  showToast(`Saved: ${t.merchant || t.categoryName || 'transaction'}`);
+  if (state.multiTxnIdx >= state.pendingMultiTxns.length) state.multiTxnIdx = state.pendingMultiTxns.length - 1;
+  _renderMultiTxnCard();
+  showToast(`Saved: ${label}`);
 }
 
-async function bulkSaveTxns(txns) {
-  for (const t of txns) {
-    await db.transactions.add({ type:t.type||'expense', amount:t.amount, categoryId:null, subcategoryId:null, categoryName:t.categoryName||'', subcategoryName:t.subcategoryName||'', accountId:null, date:t.date||new Date().toISOString().split('T')[0], note:t.note||'', merchant:t.merchant||'', receiptImage:null, createdAt:Date.now(), splitwiseId:t.splitwiseId||null });
+function discardMultiTxnCurrent() {
+  const t = state.pendingMultiTxns[state.multiTxnIdx];
+  if (!t) return;
+  const label = t.merchant || t.categoryName || 'transaction';
+  state.pendingMultiTxns.splice(state.multiTxnIdx, 1);
+  if (state.pendingMultiTxns.length === 0) {
+    closeOverlay('multi-txn-sheet');
+    showToast('Transaction discarded');
+    return;
   }
+  if (state.multiTxnIdx >= state.pendingMultiTxns.length) state.multiTxnIdx = state.pendingMultiTxns.length - 1;
+  _renderMultiTxnCard();
+  showToast(`Discarded: ${label}`);
+}
+
+function editMultiTxnCurrent() {
+  const idx = state.multiTxnIdx;
+  const t   = state.pendingMultiTxns[idx];
+  if (!t) return;
+  state.editingMultiIdx = idx;
+  closeOverlay('multi-txn-sheet');
+  openAddSheet(t.type || 'expense', { amount: t.amount, merchant: t.merchant, date: t.date, note: t.note, categoryName: t.categoryName, subcategoryName: t.subcategoryName });
+}
+
+async function _multiTxnFinalize(msg) {
   if (state.pendingSplitwiseImportTo) {
     await db.settings.put({ key: 'splitwiseLastImport', value: state.pendingSplitwiseImportTo });
     state.pendingSplitwiseImportTo = null;
   }
   closeOverlay('multi-txn-sheet');
   await refreshTxnList();
-  showToast(`${txns.length} transactions saved`);
+  showToast(msg);
 }
 
-function editMultiTxn(idx) {
-  state.editingMultiIdx = idx;
-  const t = state.pendingMultiTxns[idx];
-  closeOverlay('multi-txn-sheet');
-  openAddSheet(t.type || 'expense', { amount: t.amount, merchant: t.merchant, date: t.date, note: t.note, categoryName: t.categoryName, subcategoryName: t.subcategoryName });
-}
-
-async function reviewMultiTxnsOne() {
-  if (state.pendingMultiTxns.length === 0) return;
-  const [first, ...rest] = state.pendingMultiTxns;
-  state.pendingMultiTxns = rest;
-  closeOverlay('multi-txn-sheet');
-  await openAddSheet(first.type||'expense', { amount:first.amount, merchant:first.merchant, date:first.date, note:first.note, categoryName:first.categoryName });
+async function bulkSaveTxns(txns) {
+  const count = txns.length;
+  for (const t of txns) {
+    await db.transactions.add({ type:t.type||'expense', amount:t.amount, categoryId:null, subcategoryId:null, categoryName:t.categoryName||'', subcategoryName:t.subcategoryName||'', accountId:null, date:t.date||new Date().toISOString().split('T')[0], note:t.note||'', merchant:t.merchant||'', receiptImage:null, createdAt:Date.now(), splitwiseId:t.splitwiseId||null });
+  }
+  state.pendingMultiTxns = [];
+  await _multiTxnFinalize(`${count} transaction${count !== 1 ? 's' : ''} saved`);
 }
 
 // ─── Scan Module ─────────────────────────────────────────────────────────────
