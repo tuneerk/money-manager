@@ -233,25 +233,41 @@
     /* ── Accounts Screen ── */
     .accounts-top { padding: 14px var(--px) 4px; }
     .accounts-top h2 { font-size: 20px; font-weight: 700; }
-    .net-worth-row { padding: 4px var(--px) 14px; }
-    .net-worth-label { font-size: 12px; color: var(--text-2); }
-    .net-worth-amount { font-size: clamp(26px, 8vw, 32px); font-weight: 700; }
-    .acc-group-header { padding: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .5px; display: flex; justify-content: space-between; }
-    .acc-group-total { color: var(--text-2); text-transform: none; font-weight: 500; }
-    #accounts-list { padding: 0 var(--px) 16px; }
-    .acc-cards-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .acc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px; cursor: pointer; transition: background .15s; }
-    .acc-card:active { background: var(--surface2); }
-    .acc-card-icon { font-size: 28px; line-height: 1; margin-bottom: 10px; }
-    .acc-card-name { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
-    .acc-card-type { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
-    .acc-card-balance { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .acc-card-balance.positive { color: var(--income); }
-    .acc-card-balance.negative { color: var(--expense); }
-    .acc-card-util { margin-top: 8px; }
-    .acc-card-util-label { font-size: 10px; color: var(--text-3); }
-    .acc-card-util-bar { height: 3px; background: var(--border); border-radius: 2px; margin-top: 3px; }
-    .acc-card-util-fill { height: 100%; border-radius: 2px; transition: width .3s; }
+    .acc-summary-bar { display: flex; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+    .acc-sum-col { flex: 1; padding: 10px 0; text-align: center; }
+    .acc-sum-col + .acc-sum-col { border-left: 1px solid var(--border); }
+    .acc-sum-label { font-size: 11px; color: var(--text-3); margin-bottom: 3px; }
+    .acc-sum-val { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .acc-sum-val.income { color: var(--income); }
+    .acc-sum-val.expense { color: var(--expense); }
+    .acc-group-header { padding: 12px var(--px) 3px; font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .5px; display: flex; justify-content: space-between; align-items: center; }
+    .acc-group-total { color: var(--text-2); text-transform: none; font-weight: 500; font-variant-numeric: tabular-nums; font-size: 13px; }
+    .acc-cc-col-header { display: flex; justify-content: flex-end; gap: 0; padding: 4px var(--px) 2px; }
+    .acc-cc-col-label { font-size: 11px; color: var(--text-3); min-width: 100px; text-align: right; }
+    .account-row { display: flex; align-items: center; padding: 13px var(--px); border-bottom: 1px solid var(--border); cursor: pointer; -webkit-user-select: none; user-select: none; }
+    .account-row:active { background: var(--surface2); }
+    .acc-row-name { flex: 1; font-size: 15px; font-weight: 500; color: var(--text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .acc-row-right { display: flex; gap: 0; flex-shrink: 0; }
+    .acc-row-bal { font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; min-width: 100px; text-align: right; }
+    .acc-row-bal.positive { color: var(--income); }
+    .acc-row-bal.zero { color: var(--text); }
+    .acc-row-bal.negative { color: var(--expense); }
+    .acc-util-bar { margin-top: 2px; height: 2px; background: var(--border); border-radius: 1px; width: 100px; }
+    .acc-util-fill { height: 100%; border-radius: 1px; }
+    /* Account detail screen */
+    .acc-detail-top { display: flex; align-items: center; padding: 10px var(--px); gap: 10px; border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 10; }
+    .acc-detail-back { font-size: 26px; background: none; border: none; color: var(--text); cursor: pointer; padding: 2px 10px 2px 0; line-height: 1; }
+    .acc-detail-heading { flex: 1; font-size: 17px; font-weight: 700; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .acc-detail-edit { font-size: 14px; font-weight: 600; color: var(--accent); background: none; border: none; cursor: pointer; padding: 6px 0; }
+    .acc-detail-balance-card { margin: 14px var(--px); padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+    .acc-detail-type-label { font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
+    .acc-detail-amount { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .acc-detail-amount.positive { color: var(--income); }
+    .acc-detail-amount.negative { color: var(--expense); }
+    .acc-detail-avail { font-size: 13px; color: var(--text-2); margin-top: 6px; }
+    .acc-detail-util-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 10px; }
+    .acc-detail-util-fill { height: 100%; border-radius: 2px; transition: width .3s; }
+    .acc-detail-section-label { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .5px; padding: 14px var(--px) 4px; }
     .acc-actions { display: flex; gap: 10px; padding: 12px var(--px); }
     .acc-icon-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
     .acc-icon-option { font-size: 24px; padding: 8px; border: 2px solid var(--border); border-radius: var(--radius-sm); background: none; cursor: pointer; }
@@ -466,9 +482,19 @@
     <!-- Accounts -->
     <div id="accounts-screen" class="screen">
       <div class="accounts-top"><h2>Accounts</h2></div>
-      <div class="net-worth-row">
-        <div class="net-worth-label">Net Worth</div>
-        <div class="net-worth-amount" id="net-worth">₹0</div>
+      <div class="acc-summary-bar">
+        <div class="acc-sum-col">
+          <div class="acc-sum-label">Assets</div>
+          <div class="acc-sum-val income" id="acc-assets">₹0</div>
+        </div>
+        <div class="acc-sum-col">
+          <div class="acc-sum-label">Liabilities</div>
+          <div class="acc-sum-val expense" id="acc-liabilities">₹0</div>
+        </div>
+        <div class="acc-sum-col">
+          <div class="acc-sum-label">Total</div>
+          <div class="acc-sum-val" id="acc-total">₹0</div>
+        </div>
       </div>
       <div class="acc-actions">
         <button class="btn btn-primary" id="open-add-account-btn" style="flex:1;padding:12px">+ Add Account</button>
@@ -656,6 +682,18 @@
         <button class="btn btn-primary" onclick="openBucketSheet()" style="padding:11px">+ New Goal</button>
       </div>
       <div id="buckets-list" style="padding-top:6px"></div>
+    </div>
+
+    <!-- Account Detail -->
+    <div id="account-detail-screen" class="screen">
+      <div class="acc-detail-top">
+        <button class="acc-detail-back" onclick="closeAccountDetail()">‹</button>
+        <div class="acc-detail-heading" id="acc-detail-heading">Account</div>
+        <button class="acc-detail-edit" id="acc-detail-edit-btn" onclick="openAccountSheet(state.viewingAccountId)">Edit</button>
+      </div>
+      <div id="acc-detail-info"></div>
+      <div class="acc-detail-section-label">Transactions</div>
+      <div id="acc-detail-txns"></div>
     </div>
 
   </div><!-- /screens -->

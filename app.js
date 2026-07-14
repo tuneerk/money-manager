@@ -150,6 +150,7 @@ const state = {
   autocatData:      null,
   selectedAccIcon:    '🏦',
   editingAccountId:   null,
+  viewingAccountId:   null,
   currency:           '₹',
 
   editingBucketId:    null,
@@ -1518,8 +1519,12 @@ async function saveBudget(categoryId, value) {
 // ─── Accounts ───────────────────────────────────────────────────────────────
 async function refreshAccounts() {
   const accounts = await db.accounts.toArray();
-  const total = accounts.reduce((s, a) => s + (a.balance || 0), 0);
-  document.getElementById('net-worth').textContent = `${state.currency}${fmt(total)}`;
+  const assets      = accounts.filter(a => (a.balance || 0) >= 0).reduce((s, a) => s + (a.balance || 0), 0);
+  const liabilities = accounts.filter(a => (a.balance || 0) <  0).reduce((s, a) => s + (a.balance || 0), 0);
+  const total       = assets + liabilities;
+  document.getElementById('acc-assets').textContent      = `${state.currency}${fmt(assets)}`;
+  document.getElementById('acc-liabilities').textContent = `${state.currency}${fmt(Math.abs(liabilities))}`;
+  document.getElementById('acc-total').textContent       = `${state.currency}${fmt(Math.abs(total))}`;
 
   const list = document.getElementById('accounts-list');
   if (accounts.length === 0) {
@@ -1530,8 +1535,13 @@ async function refreshAccounts() {
     for (const [groupName, items] of Object.entries(groups)) {
       if (items.length === 0) continue;
       const groupTotal = items.reduce((s, a) => s + (a.balance || 0), 0);
-      html += `<div class="acc-group-header"><span>${groupName}</span><span class="acc-group-total">${state.currency}${fmt(Math.abs(groupTotal))}</span></div>`;
-      html += `<div class="acc-cards-grid">${items.map(a => accountRowHTML(a)).join('')}</div>`;
+      const isCCGroup  = groupName === 'Credit Cards';
+      const totalSign  = groupTotal < 0 ? '-' : '';
+      html += `<div class="acc-group-header"><span>${groupName}</span><span class="acc-group-total">${totalSign}${state.currency}${fmt(Math.abs(groupTotal))}</span></div>`;
+      if (isCCGroup) {
+        html += `<div class="acc-cc-col-header"><span class="acc-cc-col-label">Balance Payable</span><span class="acc-cc-col-label" style="min-width:110px">Outst. Balance</span></div>`;
+      }
+      html += items.map(a => accountRowHTML(a)).join('');
     }
     list.innerHTML = html;
   }
@@ -1548,34 +1558,40 @@ async function refreshAccounts() {
 }
 
 function accountRowHTML(a) {
-  const isCC      = a.type === 'Credit Card';
-  const balance   = a.balance || 0;
-  const hasLimit  = isCC && a.limit > 0;
-  // outstanding = how much is owed (positive number when balance < 0)
+  const isCC        = a.type === 'Credit Card';
+  const balance     = a.balance || 0;
+  const hasLimit    = isCC && a.limit > 0;
   const outstanding = isCC ? Math.max(-balance, 0) : 0;
   const available   = hasLimit ? Math.max(a.limit - outstanding, 0) : null;
   const utilPct     = hasLimit ? Math.min(100, Math.round(outstanding / a.limit * 100)) : null;
   const barColor    = utilPct >= 80 ? 'var(--expense)' : utilPct >= 50 ? '#FFD700' : 'var(--income)';
 
-  const displayBalance = isCC ? outstanding : Math.abs(balance);
-  const balanceCls    = isCC ? (outstanding > 0 ? 'negative' : 'positive') : (balance >= 0 ? 'positive' : 'negative');
-  const balanceSign   = (isCC && outstanding > 0) || (!isCC && balance < 0) ? '-' : '';
+  if (isCC) {
+    const payable  = Math.max(balance, 0);
+    const outst    = outstanding;
+    const payCls   = payable  > 0 ? 'negative' : 'zero';
+    const outstCls = outst    > 0 ? 'negative' : 'zero';
+    const utilBar  = hasLimit ? `
+      <div class="acc-util-bar" style="width:100px">
+        <div class="acc-util-fill" style="width:${utilPct}%;background:${barColor}"></div>
+      </div>` : '';
+    return `
+      <div class="account-row" onclick="openAccountDetail(${a.id})">
+        <div class="acc-row-name">${a.icon || '💳'} ${a.name}</div>
+        <div class="acc-row-right">
+          <div class="acc-row-bal ${payCls}">${state.currency}${fmt(payable)}</div>
+          <div class="acc-row-bal ${outstCls}" style="min-width:110px">${state.currency}${fmt(outst)}</div>
+        </div>
+      </div>`;
+  }
 
-  const utilHTML = hasLimit ? `
-    <div class="acc-card-util">
-      <div class="acc-card-util-label">${utilPct}% used · ${state.currency}${fmt(available)} free</div>
-      <div class="acc-card-util-bar">
-        <div class="acc-card-util-fill" style="width:${utilPct}%;background:${barColor}"></div>
-      </div>
-    </div>` : '';
-
+  const dispBal = Math.abs(balance);
+  const balCls  = balance > 0 ? 'positive' : balance < 0 ? 'negative' : 'zero';
+  const sign    = balance < 0 ? '-' : '';
   return `
-    <div class="acc-card" onclick="openAccountSheet(${a.id})">
-      <div class="acc-card-icon">${a.icon || '🏦'}</div>
-      <div class="acc-card-name">${a.name}</div>
-      <div class="acc-card-type">${a.type}</div>
-      <div class="acc-card-balance ${balanceCls}">${balanceSign}${state.currency}${fmt(displayBalance)}</div>
-      ${utilHTML}
+    <div class="account-row" onclick="openAccountDetail(${a.id})">
+      <div class="acc-row-name">${a.icon || '🏦'} ${a.name}</div>
+      <div class="acc-row-bal ${balCls}">${sign}${state.currency}${fmt(dispBal)}</div>
     </div>`;
 }
 
@@ -1590,6 +1606,82 @@ function groupAccounts(accounts) {
     else                                                     groups.Other.push(a);
   }
   return groups;
+}
+
+async function openAccountDetail(id) {
+  state.viewingAccountId = id;
+  const a = await db.accounts.get(id);
+
+  document.getElementById('acc-detail-heading').textContent = `${a.icon || '🏦'} ${a.name}`;
+
+  const isCC        = a.type === 'Credit Card';
+  const balance     = a.balance || 0;
+  const outstanding = isCC ? Math.max(-balance, 0) : 0;
+  const available   = (isCC && a.limit > 0) ? Math.max(a.limit - outstanding, 0) : null;
+  const utilPct     = (isCC && a.limit > 0) ? Math.min(100, Math.round(outstanding / a.limit * 100)) : null;
+  const barColor    = utilPct >= 80 ? 'var(--expense)' : utilPct >= 50 ? '#FFD700' : 'var(--income)';
+
+  const displayBal  = isCC ? outstanding : Math.abs(balance);
+  const balCls      = isCC ? (outstanding > 0 ? 'negative' : 'positive') : (balance >= 0 ? 'positive' : 'negative');
+  const balLabel    = isCC ? 'Outstanding' : (balance >= 0 ? 'Balance' : 'Overdraft');
+
+  const availHTML = available !== null ? `
+    <div class="acc-detail-avail">${state.currency}${fmt(available)} available of ${state.currency}${fmt(a.limit)} limit</div>
+    <div class="acc-detail-util-bar">
+      <div class="acc-detail-util-fill" style="width:${utilPct}%;background:${barColor}"></div>
+    </div>` : '';
+
+  document.getElementById('acc-detail-info').innerHTML = `
+    <div class="acc-detail-balance-card">
+      <div class="acc-detail-type-label">${a.type} · ${balLabel}</div>
+      <div class="acc-detail-amount ${balCls}">${state.currency}${fmt(displayBal)}</div>
+      ${availHTML}
+    </div>`;
+
+  document.getElementById('acc-detail-txns').innerHTML =
+    '<p style="padding:16px var(--px);color:var(--text-3);font-size:13px">Loading…</p>';
+
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('account-detail-screen').classList.add('active');
+
+  const allAccounts = await db.accounts.toArray();
+  _accountMap = new Map(allAccounts.map(ac => [ac.id, ac.name]));
+  const txns = await db.transactions.where('accountId').equals(id).reverse().sortBy('date');
+
+  if (txns.length === 0) {
+    document.getElementById('acc-detail-txns').innerHTML = '<p class="empty-state">No transactions yet.</p>';
+  } else {
+    document.getElementById('acc-detail-txns').innerHTML = txns.map(t => txnDetailRowHTML(t)).join('');
+  }
+}
+
+function txnDetailRowHTML(t) {
+  const meta    = getCatMeta(t.categoryName);
+  const sign    = t.type === 'income' ? '+' : t.type === 'transfer' ? '⇄' : '-';
+  const cls     = t.type === 'income' ? 'income' : t.type === 'transfer' ? 'transfer' : 'expense';
+  const desc    = t.note || t.merchant || '';
+  const d       = new Date(t.date);
+  const dateStr = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return `
+    <div class="txn-row" onclick="openEditSheet(${t.id})">
+      <div class="txn-icon" style="background:${meta.darkBg}">${meta.icon}</div>
+      <div class="txn-cat-block">
+        <div class="txn-cat">${t.categoryName || 'Other'}</div>
+        ${t.subcategoryName ? `<div class="txn-sub">${t.subcategoryName}</div>` : ''}
+      </div>
+      <div class="txn-main">
+        ${desc ? `<div class="txn-desc">${desc}</div>` : ''}
+        <div class="txn-acc">${dateStr}</div>
+      </div>
+      <div class="txn-amount ${cls}">${sign}${state.currency}${fmt(t.amount)}</div>
+    </div>`;
+}
+
+function closeAccountDetail() {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('accounts-screen').classList.add('active');
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.remove('active'));
+  document.querySelector('[data-tab="accounts-screen"]')?.classList.add('active');
 }
 
 async function openAccountSheet(id = null) {
@@ -3238,6 +3330,11 @@ window.addEventListener('popstate', () => {
   const overlays = [...document.querySelectorAll('.overlay-bg.active')];
   if (overlays.length > 0) {
     closeOverlay(overlays[overlays.length - 1].id);
+    history.pushState({ mm: true }, '');
+    return;
+  }
+  if (document.getElementById('account-detail-screen')?.classList.contains('active')) {
+    closeAccountDetail();
     history.pushState({ mm: true }, '');
     return;
   }
