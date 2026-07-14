@@ -150,6 +150,11 @@ const state = {
   catMgmtTab:       'expense',
   catMgmtExpanded:  new Set(),
   readbackEnabled:  true,
+  txnCatId:         null,
+  txnCatName:       '',
+  txnSubId:         null,
+  txnSubName:       '',
+  openCustomDD:     null,
 
   scanData:         null,
   scanImageB64:     null,
@@ -255,7 +260,11 @@ function setupGlobalListeners() {
   document.getElementById('txn-type-income').addEventListener('click',   () => setTxnType('income'));
   document.getElementById('txn-type-transfer').addEventListener('click', () => setTxnType('transfer'));
 
-  document.getElementById('txn-category').addEventListener('change', () => loadSubcats());
+  document.addEventListener('pointerdown', e => {
+    if (!state.openCustomDD) return;
+    const dd = document.getElementById(state.openCustomDD);
+    if (dd && !dd.contains(e.target)) closeAllCustomDDs();
+  }, { capture: true });
 
   document.getElementById('save-txn-btn').addEventListener('click', saveTransaction);
 
@@ -967,30 +976,110 @@ function setTxnType(type) {
   ['expense','income','transfer'].forEach(t => {
     document.getElementById(`txn-type-${t}`).classList.toggle('active', t === type);
   });
-  if (type !== 'transfer') loadCategoryDropdown();
-  else {
-    document.getElementById('txn-category').innerHTML = '<option value="">N/A (Transfer)</option>';
-    document.getElementById('txn-subcategory').innerHTML = '<option value="">N/A</option>';
+  if (type !== 'transfer') {
+    loadCategoryDropdown();
+  } else {
+    const cl = document.getElementById('txn-category-label');
+    const sl = document.getElementById('txn-subcategory-label');
+    cl.textContent = 'N/A (Transfer)'; cl.className = 'custom-dd-label ph';
+    sl.textContent = 'N/A';           sl.className = 'custom-dd-label ph';
+    document.getElementById('txn-category-list').innerHTML   = '';
+    document.getElementById('txn-subcategory-list').innerHTML = '';
+    state.txnCatId = null; state.txnCatName = '';
+    state.txnSubId = null; state.txnSubName = '';
   }
+}
+
+function _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+
+function toggleCustomDD(ddId) {
+  if (state.openCustomDD === ddId) { closeAllCustomDDs(); return; }
+  closeAllCustomDDs();
+  const btn  = document.querySelector(`#${ddId} .custom-dd-btn`);
+  const list = document.querySelector(`#${ddId} .custom-dd-list`);
+  btn.classList.add('open');
+  list.classList.add('open');
+  state.openCustomDD = ddId;
+}
+
+function closeAllCustomDDs() {
+  if (!state.openCustomDD) return;
+  const dd = document.getElementById(state.openCustomDD);
+  if (dd) {
+    dd.querySelector('.custom-dd-btn')?.classList.remove('open');
+    dd.querySelector('.custom-dd-list')?.classList.remove('open');
+  }
+  state.openCustomDD = null;
+}
+
+function selectCatOption(btn) {
+  const id   = parseInt(btn.dataset.id) || null;
+  const name = btn.dataset.name || '';
+  const icon = btn.dataset.icon || '';
+  state.txnCatId = id; state.txnCatName = name;
+  state.txnSubId = null; state.txnSubName = '';
+  const label = document.getElementById('txn-category-label');
+  label.textContent = id ? `${icon} ${name}`.trim() : 'Select category';
+  label.className   = id ? 'custom-dd-label' : 'custom-dd-label ph';
+  document.querySelectorAll('#txn-category-list .custom-dd-opt').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  closeAllCustomDDs();
+  if (id) loadSubcats();
+}
+
+function selectSubOption(btn) {
+  const id   = parseInt(btn.dataset.id) || null;
+  const name = btn.dataset.name || '';
+  const icon = btn.dataset.icon || '';
+  state.txnSubId = id; state.txnSubName = name;
+  const label = document.getElementById('txn-subcategory-label');
+  label.textContent = id ? `${icon} ${name}`.trim() : 'No sub-category';
+  label.className   = id ? 'custom-dd-label' : 'custom-dd-label ph';
+  document.querySelectorAll('#txn-subcategory-list .custom-dd-opt').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  closeAllCustomDDs();
 }
 
 async function loadCategoryDropdown(prefillCat, prefillSub) {
   const type = state.currentType === 'transfer' ? 'expense' : state.currentType;
   const cats = await db.categories.where('type').equals(type).toArray();
-  const sel = document.getElementById('txn-category');
-  sel.innerHTML = '<option value="">Select category</option>' +
-    cats.map(c => `<option value="${c.id}" data-name="${c.name}"${c.name === prefillCat ? ' selected' : ''}>${c.icon} ${c.name}</option>`).join('');
+  state.txnCatId = null; state.txnCatName = '';
+  state.txnSubId = null; state.txnSubName = '';
+  const label = document.getElementById('txn-category-label');
+  label.textContent = 'Select category';
+  label.className   = 'custom-dd-label ph';
+  const list = document.getElementById('txn-category-list');
+  list.innerHTML = cats.map(c => {
+    const sel = c.name === prefillCat;
+    if (sel) {
+      state.txnCatId = c.id; state.txnCatName = c.name;
+      label.textContent = `${c.icon || ''} ${c.name}`.trim();
+      label.className   = 'custom-dd-label';
+    }
+    return `<button type="button" class="custom-dd-opt${sel?' selected':''}" data-id="${c.id}" data-name="${_esc(c.name)}" data-icon="${_esc(c.icon||'')}" onclick="selectCatOption(this)"><span class="custom-dd-opt-icon">${c.icon||''}</span>${c.name}</button>`;
+  }).join('');
   await loadSubcats(prefillSub);
 }
 
 async function loadSubcats(prefillSub) {
-  const catSel = document.getElementById('txn-category');
-  const catId  = parseInt(catSel.value);
-  const subSel = document.getElementById('txn-subcategory');
-  if (!catId) { subSel.innerHTML = '<option value="">Select sub-category</option>'; return; }
+  const catId = state.txnCatId;
+  state.txnSubId = null; state.txnSubName = '';
+  const label = document.getElementById('txn-subcategory-label');
+  label.textContent = 'No sub-category';
+  label.className   = 'custom-dd-label ph';
+  const list = document.getElementById('txn-subcategory-list');
+  if (!catId) { list.innerHTML = ''; return; }
   const subs = await db.subcategories.where('categoryId').equals(catId).toArray();
-  subSel.innerHTML = '<option value="">No sub-category</option>' +
-    subs.map(s => `<option value="${s.id}" data-name="${s.name}"${s.name === prefillSub ? ' selected' : ''}>${s.icon || ''} ${s.name}</option>`).join('');
+  list.innerHTML = `<button type="button" class="custom-dd-opt" data-id="" data-name="" data-icon="" onclick="selectSubOption(this)">No sub-category</button>`
+    + subs.map(s => {
+      const sel = s.name === prefillSub;
+      if (sel) {
+        state.txnSubId = s.id; state.txnSubName = s.name;
+        label.textContent = `${s.icon||''} ${s.name}`.trim();
+        label.className   = 'custom-dd-label';
+      }
+      return `<button type="button" class="custom-dd-opt${sel?' selected':''}" data-id="${s.id}" data-name="${_esc(s.name)}" data-icon="${_esc(s.icon||'')}" onclick="selectSubOption(this)"><span class="custom-dd-opt-icon">${s.icon||''}</span>${s.name}</button>`;
+    }).join('');
 }
 
 async function saveTransaction() {
@@ -999,12 +1088,10 @@ async function saveTransaction() {
   const amountRaw = parseFloat(document.getElementById('txn-amount').value);
   if (!amountRaw || amountRaw <= 0) { showToast('Enter a valid amount'); return; }
 
-  const catSel  = document.getElementById('txn-category');
-  const subSel  = document.getElementById('txn-subcategory');
-  const catId   = parseInt(catSel.value) || null;
-  const subId   = parseInt(subSel.value) || null;
-  const catName = catSel.selectedOptions[0]?.dataset.name || '';
-  const subName = subSel.selectedOptions[0]?.dataset.name || '';
+  const catId   = state.txnCatId   || null;
+  const subId   = state.txnSubId   || null;
+  const catName = state.txnCatName || '';
+  const subName = state.txnSubName || '';
   const accId   = parseInt(document.getElementById('txn-account').value) || null;
 
   const fields = {

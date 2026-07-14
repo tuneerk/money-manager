@@ -308,6 +308,22 @@
     .field-select { width: 100%; background: transparent; border: none; border-bottom: 1.5px solid var(--border); padding: 8px 0; font-size: 16px; color: var(--text); outline: none; font-family: inherit; cursor: pointer; appearance: none; }
     .field-select:focus { border-bottom-color: var(--accent); }
     .field-select option { background: var(--surface); color: var(--text); }
+
+    /* ── Custom Dropdown ── */
+    .custom-dd-btn { width:100%; display:flex; align-items:center; gap:8px; background:transparent; border:none; border-bottom:1.5px solid var(--border); padding:8px 0; font-size:16px; color:var(--text); cursor:pointer; font-family:inherit; text-align:left; outline:none; transition:border-color .15s; }
+    .custom-dd-btn.open { border-bottom-color:var(--accent); }
+    .custom-dd-label { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .custom-dd-label.ph { color:var(--text-3); }
+    .custom-dd-arrow { color:var(--text-3); font-size:11px; flex-shrink:0; transition:transform .2s; }
+    .custom-dd-btn.open .custom-dd-arrow { transform:rotate(180deg); }
+    .custom-dd-list { display:none; max-height:220px; overflow-y:auto; background:var(--surface2); border:1px solid var(--border); border-radius:10px; margin-top:4px; scrollbar-width:none; }
+    .custom-dd-list.open { display:block; }
+    .custom-dd-list::-webkit-scrollbar { display:none; }
+    .custom-dd-opt { display:flex; align-items:center; gap:10px; padding:11px 14px; width:100%; background:none; border:none; border-bottom:1px solid rgba(255,255,255,.04); color:var(--text); font-size:14px; font-family:inherit; cursor:pointer; text-align:left; }
+    .custom-dd-opt:last-child { border-bottom:none; }
+    .custom-dd-opt:active { background:rgba(255,255,255,.06); }
+    .custom-dd-opt.selected { color:var(--accent); }
+    .custom-dd-opt-icon { font-size:17px; width:22px; text-align:center; flex-shrink:0; }
     .amount-big { font-size: 40px; font-weight: 700; text-align: center; margin-bottom: 24px; }
     .amount-input-wrap { display: flex; align-items: baseline; justify-content: center; gap: 4px; margin-bottom: 24px; }
     .amount-currency { font-size: 28px; font-weight: 700; color: var(--text-2); }
@@ -759,11 +775,23 @@
     </div>
     <div class="form-field">
       <div class="field-label">Category</div>
-      <select id="txn-category" class="field-select"><option value="">Select category</option></select>
+      <div id="txn-category-dd">
+        <button type="button" class="custom-dd-btn" id="txn-category-btn" onclick="toggleCustomDD('txn-category-dd')">
+          <span class="custom-dd-label ph" id="txn-category-label">Select category</span>
+          <span class="custom-dd-arrow">▾</span>
+        </button>
+        <div class="custom-dd-list" id="txn-category-list"></div>
+      </div>
     </div>
     <div class="form-field">
       <div class="field-label">Sub-Category</div>
-      <select id="txn-subcategory" class="field-select"><option value="">None</option></select>
+      <div id="txn-subcategory-dd">
+        <button type="button" class="custom-dd-btn" id="txn-subcategory-btn" onclick="toggleCustomDD('txn-subcategory-dd')">
+          <span class="custom-dd-label ph" id="txn-subcategory-label">No sub-category</span>
+          <span class="custom-dd-arrow">▾</span>
+        </button>
+        <div class="custom-dd-list" id="txn-subcategory-list"></div>
+      </div>
     </div>
     <div class="form-row-2">
       <div class="form-field">
