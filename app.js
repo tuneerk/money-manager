@@ -284,6 +284,11 @@ function setupGlobalListeners() {
     document.getElementById('splitwise-test-status').textContent = '—';
     document.getElementById('splitwise-test-status').style.color = 'var(--text-3)';
   });
+  document.getElementById('splitwise-api-key').addEventListener('change', async e => {
+    await db.settings.put({ key: 'splitwiseApiKey', value: e.target.value.trim() });
+    document.getElementById('splitwise-test-status').textContent = '—';
+    document.getElementById('splitwise-test-status').style.color = 'var(--text-3)';
+  });
 
   document.getElementById('multi-save-all-btn').addEventListener('click', () => bulkSaveTxns(state.pendingMultiTxns));
   document.getElementById('multi-review-btn').addEventListener('click', () => {
@@ -1769,12 +1774,21 @@ async function saveTransfer() {
 
 // ─── Splitwise ───────────────────────────────────────────────────────────────
 async function splitwiseFetch(path, options = {}) {
-  const urlRow = await db.settings.get('splitwiseProxyUrl');
+  const [urlRow, keyRow] = await Promise.all([
+    db.settings.get('splitwiseProxyUrl'),
+    db.settings.get('splitwiseApiKey'),
+  ]);
   const proxyUrl = (urlRow?.value || '').trim().replace(/\/$/, '');
+  const apiKey   = (keyRow?.value || '').trim();
   if (!proxyUrl) throw new Error('Proxy URL not configured');
+  if (!apiKey)   throw new Error('API key not set');
   const res = await fetch(proxyUrl + path, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Splitwise-Key': apiKey,
+      ...(options.headers || {}),
+    },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -1803,11 +1817,12 @@ async function refreshSplitwiseBalances() {
   const summary = document.getElementById('splitwise-balances-summary');
   const body    = document.getElementById('splitwise-balances-body');
   if (!card) return;
-  const [enabledRow, urlRow] = await Promise.all([
+  const [enabledRow, urlRow, keyRow] = await Promise.all([
     db.settings.get('splitwiseEnabled'),
     db.settings.get('splitwiseProxyUrl'),
+    db.settings.get('splitwiseApiKey'),
   ]);
-  if (!enabledRow?.value || !urlRow?.value?.trim()) {
+  if (!enabledRow?.value || !urlRow?.value?.trim() || !keyRow?.value?.trim()) {
     card.style.display = 'none';
     return;
   }
@@ -2037,6 +2052,7 @@ async function refreshSettings() {
   const swEnabled = settings.splitwiseEnabled ?? false;
   setToggleVisual('toggle-splitwise', swEnabled);
   document.getElementById('splitwise-proxy-url').value  = settings.splitwiseProxyUrl || '';
+  document.getElementById('splitwise-api-key').value    = settings.splitwiseApiKey   || '';
   document.getElementById('splitwise-config').style.display = swEnabled ? 'block' : 'none';
   document.getElementById('splitwise-test-status').textContent = '—';
   document.getElementById('splitwise-test-status').style.color = 'var(--text-3)';
