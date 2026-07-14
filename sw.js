@@ -1,4 +1,4 @@
-const CACHE_NAME = 'money-manager-v31';
+const CACHE_NAME = 'money-manager-v32';
 const ASSETS = [
   './',
   './index.html',
@@ -18,8 +18,13 @@ self.addEventListener('activate', e => {
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     ).then(() => self.clients.claim()).then(() =>
+      // Force-reload all open windows so they get the new cache immediately.
+      // client.navigate() works even if old page code has no listeners.
+      // Falls back to postMessage for browsers that don't support navigate().
       self.clients.matchAll({ type: 'window' }).then(clients =>
-        clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' }))
+        Promise.all(clients.map(c =>
+          c.navigate(c.url).catch(() => c.postMessage({ type: 'SW_UPDATED' }))
+        ))
       )
     )
   );
