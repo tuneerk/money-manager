@@ -147,6 +147,8 @@ const state = {
   pendingSplitwiseImportTo: null,
   multiTxnIdx: 0,
   editingMultiIdx:  null,
+  catMgmtTab:       'expense',
+  catMgmtExpanded:  new Set(),
   readbackEnabled:  true,
 
   scanData:         null,
@@ -3343,6 +3345,145 @@ async function bulkSaveTxns(txns) {
   }
   state.pendingMultiTxns = [];
   await _multiTxnFinalize(`${count} transaction${count !== 1 ? 's' : ''} saved`);
+}
+
+// ─── Category Management ─────────────────────────────────────────────────────
+function openCatMgmt() {
+  state.catMgmtExpanded = new Set();
+  hideAddCatForm();
+  openOverlay('cat-mgmt-sheet');
+  renderCatMgmt();
+}
+
+function setCatMgmtTab(type) {
+  state.catMgmtTab = type;
+  document.getElementById('catmgmt-tab-expense').classList.toggle('active', type === 'expense');
+  document.getElementById('catmgmt-tab-income').classList.toggle('active', type === 'income');
+  hideAddCatForm();
+  renderCatMgmt();
+}
+
+async function renderCatMgmt() {
+  const type    = state.catMgmtTab;
+  const cats    = await db.categories.where('type').equals(type).toArray();
+  const subcats = await db.subcategories.toArray();
+  const subsByCat = {};
+  for (const s of subcats) {
+    if (!subsByCat[s.categoryId]) subsByCat[s.categoryId] = [];
+    subsByCat[s.categoryId].push(s);
+  }
+
+  const el = document.getElementById('cat-mgmt-list');
+  if (!el) return;
+
+  el.innerHTML = cats.map(cat => {
+    const subs    = subsByCat[cat.id] || [];
+    const isOpen  = state.catMgmtExpanded.has(cat.id);
+    const chevron = isOpen ? '▾' : '›';
+
+    const subRows = subs.map(s => `
+      <div class="catmgmt-sub-row">
+        <span style="font-size:16px;width:24px;text-align:center">${s.icon || '•'}</span>
+        <span class="catmgmt-sub-name">${s.name}</span>
+        <button class="catmgmt-del" onclick="deleteSubcat(${s.id})" title="Delete subcategory">✕</button>
+      </div>`).join('');
+
+    const addSubForm = `
+      <div id="add-sub-form-${cat.id}" style="display:none;padding:8px var(--px) 8px calc(var(--px) + 18px);gap:6px;flex-direction:column">
+        <div style="display:flex;gap:6px">
+          <input id="new-sub-icon-${cat.id}" type="text" maxlength="4" placeholder="🔹" class="catmgmt-icon-input" style="width:40px;font-size:16px">
+          <input id="new-sub-name-${cat.id}" type="text" placeholder="Subcategory name" class="catmgmt-input">
+        </div>
+        <div style="display:flex;gap:6px">
+          <button onclick="hideAddSubcatForm(${cat.id})" class="btn btn-outline" style="flex:1;padding:6px">Cancel</button>
+          <button onclick="addSubcategory(${cat.id})" class="catmgmt-save-btn" style="flex:1">Save</button>
+        </div>
+      </div>`;
+
+    const addSubBtn = `
+      <div class="catmgmt-add-sub">
+        <button onclick="showAddSubcatForm(${cat.id})" id="add-sub-btn-${cat.id}" style="background:none;border:1px dashed var(--border);border-radius:8px;color:var(--text-3);font-size:12px;padding:5px 12px;cursor:pointer;width:100%">+ Add subcategory</button>
+      </div>`;
+
+    const subsSection = isOpen ? `<div class="catmgmt-subs">${subRows}${addSubBtn}${addSubForm}</div>` : '';
+
+    return `
+      <div class="catmgmt-row" onclick="toggleCatExpand(${cat.id})">
+        <span class="catmgmt-icon">${cat.icon || '📦'}</span>
+        <span class="catmgmt-name">${cat.name}</span>
+        <span class="catmgmt-chevron${isOpen ? ' open' : ''}">${chevron}</span>
+        <button class="catmgmt-del" onclick="event.stopPropagation();deleteCat(${cat.id})" title="Delete category">✕</button>
+      </div>
+      ${subsSection}`;
+  }).join('');
+}
+
+function toggleCatExpand(catId) {
+  if (state.catMgmtExpanded.has(catId)) state.catMgmtExpanded.delete(catId);
+  else state.catMgmtExpanded.add(catId);
+  renderCatMgmt();
+}
+
+async function deleteCat(catId) {
+  if (!confirm('Delete this category and all its subcategories?')) return;
+  await db.subcategories.where('categoryId').equals(catId).delete();
+  await db.categories.delete(catId);
+  state.catMgmtExpanded.delete(catId);
+  renderCatMgmt();
+  showToast('Category deleted');
+}
+
+async function deleteSubcat(subId) {
+  await db.subcategories.delete(subId);
+  renderCatMgmt();
+  showToast('Subcategory deleted');
+}
+
+function showAddCatForm() {
+  document.getElementById('add-cat-btn').style.display  = 'none';
+  const form = document.getElementById('add-cat-form');
+  form.style.display = 'flex';
+  document.getElementById('new-cat-name').focus();
+}
+
+function hideAddCatForm() {
+  const btn  = document.getElementById('add-cat-btn');
+  const form = document.getElementById('add-cat-form');
+  if (btn)  btn.style.display  = '';
+  if (form) { form.style.display = 'none'; form.querySelector('input[type=text]') && (document.getElementById('new-cat-icon').value = ''); document.getElementById('new-cat-name') && (document.getElementById('new-cat-name').value = ''); }
+}
+
+async function addCategory() {
+  const icon = document.getElementById('new-cat-icon').value.trim() || '📦';
+  const name = document.getElementById('new-cat-name').value.trim();
+  if (!name) { showToast('Enter a category name'); return; }
+  await db.categories.add({ name, type: state.catMgmtTab, icon });
+  hideAddCatForm();
+  renderCatMgmt();
+  showToast(`"${name}" added`);
+}
+
+function showAddSubcatForm(catId) {
+  document.getElementById(`add-sub-btn-${catId}`).style.display = 'none';
+  const form = document.getElementById(`add-sub-form-${catId}`);
+  form.style.display = 'flex';
+  document.getElementById(`new-sub-name-${catId}`).focus();
+}
+
+function hideAddSubcatForm(catId) {
+  const btn  = document.getElementById(`add-sub-btn-${catId}`);
+  const form = document.getElementById(`add-sub-form-${catId}`);
+  if (btn)  btn.style.display  = '';
+  if (form) form.style.display = 'none';
+}
+
+async function addSubcategory(catId) {
+  const icon = document.getElementById(`new-sub-icon-${catId}`).value.trim() || '🔹';
+  const name = document.getElementById(`new-sub-name-${catId}`).value.trim();
+  if (!name) { showToast('Enter a subcategory name'); return; }
+  await db.subcategories.add({ name, categoryId: catId, icon });
+  renderCatMgmt();
+  showToast(`"${name}" added`);
 }
 
 // ─── Scan Module ─────────────────────────────────────────────────────────────
