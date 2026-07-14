@@ -689,6 +689,18 @@
         </div>
       </div>
 
+      <div class="settings-section" style="border-color:rgba(255,96,96,.3)">
+        <div class="settings-section-title" style="color:var(--expense)">Danger Zone</div>
+        <div class="settings-row" style="cursor:pointer" onclick="openClearDataSheet()">
+          <span style="font-size:18px">🗑️</span>
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:600;color:var(--expense)">Clear All Data</div>
+            <div style="font-size:12px;color:var(--text-2);margin-top:2px">Permanently delete all transactions, accounts &amp; categories</div>
+          </div>
+          <span style="color:var(--expense)">›</span>
+        </div>
+      </div>
+
       <div style="text-align:center;padding:24px;font-size:12px;color:var(--text-3)">
         Money Manager <span id="app-version-label"></span> · All data stored on-device
       </div>
@@ -1201,6 +1213,20 @@
       <button onclick="fetchSplitwiseExpenses()" style="width:100%;padding:14px;background:var(--accent);border:none;border-radius:10px;color:white;font-size:15px;font-weight:600;cursor:pointer">Fetch Expenses</button>
       <p id="sw-import-status" style="font-size:13px;color:var(--text-3);text-align:center;margin-top:14px;min-height:18px"></p>
     </div>
+  </div>
+</div>
+
+<!-- Clear All Data confirmation sheet -->
+<div id="clear-data-sheet" class="overlay-bg">
+  <div class="sheet" style="text-align:center">
+    <div class="sheet-handle"></div>
+    <div style="font-size:40px;margin-bottom:10px">⚠️</div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:10px;color:var(--expense)">Delete All Data?</div>
+    <div style="font-size:14px;color:var(--text-2);line-height:1.6;margin-bottom:24px">
+      This will permanently erase <strong style="color:var(--text)">all transactions, accounts, categories, budgets, and goals</strong>. The app will reset to its default state.<br><br>This cannot be undone.
+    </div>
+    <button onclick="clearAllData()" class="btn btn-danger" style="margin-bottom:10px">Yes, Delete Everything</button>
+    <button onclick="closeOverlay('clear-data-sheet')" class="btn btn-outline">Cancel</button>
   </div>
 </div>
 

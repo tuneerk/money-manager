@@ -3922,6 +3922,35 @@ async function checkForUpdates() {
   }
 }
 
+function openClearDataSheet() {
+  openOverlay('clear-data-sheet');
+}
+
+async function clearAllData() {
+  closeOverlay('clear-data-sheet');
+  showToast('Clearing all data…');
+  await Promise.all([
+    db.transactions.clear(),
+    db.accounts.clear(),
+    db.categories.clear(),
+    db.subcategories.clear(),
+    db.merchantMap.clear(),
+    db.budgets.clear(),
+    db.buckets.clear(),
+    db.settings.clear(),
+  ]);
+  await seedDefaults();
+  // Reset in-memory state
+  _accountMap.clear();
+  state.navMonth  = new Date().getMonth();
+  state.navYear   = new Date().getFullYear();
+  state.statsTab  = 'expense';
+  state.txnTagFilter   = '';
+  state.statsTagFilter = '';
+  await Promise.all([refreshTxnList(), refreshReports(), refreshSettings(), refreshAccounts()]);
+  showToast('All data cleared', true);
+}
+
 document.addEventListener('DOMContentLoaded', init);
 
 // ─── Gestures ────────────────────────────────────────────────────────────────
