@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.42';
+const APP_VERSION = 'v1.43';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -2349,9 +2349,10 @@ async function swSelectChip(type) {
 }
 
 // ─── Shared import-time category resolver ────────────────────────────────────
-// Two-pass category resolution for imported transactions.
-// Pass 1: fill IDs for exact-name matches immediately.
-// Pass 2: batch AI call for any remaining unknowns → match or create, then fill.
+// Three-pass category resolution for imported transactions.
+// Pass 0: merchant map + keyword inference for transactions with empty categoryName.
+// Pass 1: fill IDs for exact-name matches.
+// Pass 2: batch AI call for remaining unknowns → match or create, then fill.
 async function resolveImportCategories(txns, onStatus) {
   const cats  = await db.categories.toArray();
   let subcats = await db.subcategories.toArray();
@@ -2377,11 +2378,45 @@ async function resolveImportCategories(txns, onStatus) {
 
     const subLow = (t.subcategoryName || '').toLowerCase();
     let sub = subLow ? subIdx.get(`${cat.id}|${subLow}`) : null;
-    // Fall back to AI-suggested sub name if direct match failed
     if (!sub && alias?.subName) sub = subIdx.get(`${cat.id}|${alias.subName.toLowerCase()}`);
 
     if (sub) { t.subcategoryName = sub.name; t.subcategoryId = sub.id; }
     else      { t.subcategoryId  = null; }
+  }
+
+  // ── Pass 0: merchant-based inference for transactions with no category ────
+  // Uses saved merchant rules first, then KEYWORD_MAP, then merchant-as-AI-hint.
+  const merchantHintSet = new Set(); // txns that used merchant name as AI hint
+  const savedMerchants  = await db.merchantMap.toArray();
+  const savedByName     = new Map(savedMerchants.map(m => [m.merchant, m]));
+
+  for (const t of txns) {
+    if (t.categoryName || !t.merchant || t.type === 'transfer') continue;
+    const lower = t.merchant.toLowerCase().trim();
+
+    // 1. Saved merchant rule (exact)
+    const saved = savedByName.get(lower);
+    if (saved?.categoryName) {
+      t.categoryName    = saved.categoryName;
+      t.subcategoryName = saved.subcategoryName || '';
+      continue;
+    }
+
+    // 2. KEYWORD_MAP (substring match)
+    let matched = false;
+    for (const [keyword, [cat, sub]] of Object.entries(KEYWORD_MAP)) {
+      if (lower.includes(keyword)) {
+        t.categoryName    = cat;
+        t.subcategoryName = sub || '';
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    // 3. Use merchant name as hint for AI (cleaned up later if AI can't resolve)
+    t.categoryName = t.merchant;
+    merchantHintSet.add(t);
   }
 
   // ── Pass 1: exact matches ─────────────────────────────────────────────────
@@ -2397,6 +2432,11 @@ async function resolveImportCategories(txns, onStatus) {
     } else {
       t.categoryId = null; t.subcategoryId = null;
     }
+  }
+
+  // Clean up merchant hints that resolved in Pass 1 (no AI needed for them)
+  for (const t of merchantHintSet) {
+    if (t.categoryId) merchantHintSet.delete(t);
   }
 
   if (!needsAI.length) return;
@@ -2498,6 +2538,12 @@ async function resolveImportCategories(txns, onStatus) {
 
   // Fill all AI-resolved txns
   for (const t of needsAI) fillTxn(t);
+
+  // For merchant-hinted txns that AI couldn't resolve, clear the temporary categoryName
+  // so the transaction is stored cleanly with null category rather than the merchant name
+  for (const t of merchantHintSet) {
+    if (!t.categoryId) { t.categoryName = ''; t.subcategoryName = ''; }
+  }
 }
 
 // Re-runs category resolution on all existing transactions that have no categoryId.
@@ -2511,25 +2557,12 @@ async function recategorizeUncategorized() {
 
   showToast(`Checking ${uncategorized.length} uncategorized transactions…`);
 
-  // For txns with empty categoryName, use merchant name as context for AI matching
-  const merchantFallback = new Set();
-  for (const t of uncategorized) {
-    if (!t.categoryName && t.merchant) {
-      t.categoryName = t.merchant;
-      merchantFallback.add(t.id);
-    }
-  }
-
+  // resolveImportCategories handles merchant inference internally (Pass 0)
   await resolveImportCategories(uncategorized, msg => showToast(msg));
-
-  // For merchant-fallback txns that AI couldn't resolve, clear the temp categoryName
-  for (const t of uncategorized) {
-    if (merchantFallback.has(t.id) && !t.categoryId) t.categoryName = '';
-  }
 
   const resolved = uncategorized.filter(t => t.categoryId);
   if (!resolved.length) {
-    showToast('No categories resolved — check AI settings or add an API key');
+    showToast('No categories resolved — add an AI API key in Settings for smarter matching');
     return;
   }
 
