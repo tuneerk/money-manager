@@ -80,19 +80,19 @@
     .section-header { display: flex; align-items: center; justify-content: space-between; padding: 14px var(--px) 6px; }
     .section-title { font-size: 13px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; }
 
-    /* ── Day Group (dark) ── */
-    .day-group { margin: 0 12px 4px; }
-    .day-group-header { display: flex; align-items: center; gap: 10px; padding: 8px 8px 4px; }
-    .day-badge { width: 38px; height: 38px; border-radius: 10px; background: var(--surface2); display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; }
-    .day-badge .day-num  { font-size: 16px; font-weight: 700; line-height: 1; }
-    .day-badge .day-name { font-size: 9px; color: var(--text-2); text-transform: uppercase; }
-    .day-badge.sunday   { background: rgba(255,96,96,.18); }
-    .day-badge.sunday .day-num { color: var(--expense); }
-    .day-badge.saturday { background: rgba(91,184,255,.18); }
-    .day-badge.saturday .day-num { color: var(--income); }
-    .day-totals { flex: 1; display: flex; justify-content: flex-end; gap: 10px; }
-    .day-income-total  { font-size: 12px; color: var(--income); font-weight: 600; }
-    .day-expense-total { font-size: 12px; color: var(--expense); font-weight: 600; }
+    /* ── Day Group ── */
+    .day-group { margin: 0; }
+    .day-group-header { display: flex; align-items: center; gap: 6px; padding: 10px 16px 6px; border-top: 1px solid var(--border); margin-top: 2px; }
+    .day-num-big { font-size: 22px; font-weight: 700; line-height: 1; min-width: 24px; flex-shrink: 0; }
+    .day-num-big.sunday   { color: var(--expense); }
+    .day-num-big.saturday { color: var(--income); }
+    .day-pill { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: var(--surface2); color: var(--text-2); flex-shrink: 0; text-transform: uppercase; letter-spacing: .3px; }
+    .day-pill.sunday   { background: rgba(255,96,96,.18);   color: var(--expense); }
+    .day-pill.saturday { background: rgba(91,184,255,.18);  color: var(--income); }
+    .day-mmyy { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+    .day-totals { flex: 1; display: flex; justify-content: flex-end; gap: 12px; }
+    .day-income-total  { font-size: 12px; color: var(--income);  font-weight: 600; font-variant-numeric: tabular-nums; }
+    .day-expense-total { font-size: 12px; color: var(--expense); font-weight: 600; font-variant-numeric: tabular-nums; }
 
     /* ── Swipe-to-delete ── */
     .txn-swipe-wrap { position: relative; overflow: hidden; }
@@ -115,22 +115,40 @@
     .ptr-bar.ptr-ready .ptr-icon { transform: rotate(180deg); }
     .ptr-bar.ptr-loading .ptr-icon { animation: _ptr-spin .7s linear infinite; }
 
-    /* ── Transaction Row (dark) ── */
-    .txn-row { display: flex; align-items: center; gap: 12px; padding: 11px 8px; border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; position: relative; z-index: 1; background: var(--bg); }
+    /* ── Transaction Row ── */
+    .txn-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; position: relative; z-index: 1; background: var(--bg); }
     .txn-row:last-child { border-bottom: none; }
-    .txn-row:active { background: var(--surface2); border-radius: 10px; }
-    .txn-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
-    .txn-info { flex: 1; min-width: 0; }
-    .txn-cat  { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .txn-sub  { font-size: 12px; color: var(--text-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .txn-amount { font-size: 15px; font-weight: 700; flex-shrink: 0; }
+    .txn-row:active { background: var(--surface2); }
+    .txn-icon { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+    .txn-cat-block { width: 68px; flex-shrink: 0; }
+    .txn-cat  { font-size: 12px; font-weight: 500; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .txn-sub  { font-size: 11px; color: var(--text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .txn-main { flex: 1; min-width: 0; }
+    .txn-desc { font-size: 14px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .txn-acc  { font-size: 11px; color: var(--text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .txn-amount { font-size: 14px; font-weight: 700; flex-shrink: 0; font-variant-numeric: tabular-nums; }
     .txn-amount.income   { color: var(--income); }
     .txn-amount.expense  { color: var(--expense); }
     .txn-amount.transfer { color: var(--transfer); }
     .empty-state { text-align: center; color: var(--text-3); padding: 48px 20px; font-size: 14px; line-height: 1.7; }
 
+    /* ── Transactions Screen Header ── */
+    .txn-hdr { display: flex; align-items: center; padding: 10px var(--px) 6px; }
+    .txn-hdr-nav { display: flex; align-items: center; gap: 2px; }
+    .txn-hdr-icons { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+    .txn-hdr-btn { background: none; border: none; color: var(--text-2); cursor: pointer; padding: 6px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+    .txn-hdr-btn:active { background: var(--surface2); }
+
+    /* ── Transactions Summary Bar ── */
+    .txn-summary-bar { display: flex; border-bottom: 1px solid var(--border); padding: 10px var(--px) 12px; background: var(--bg); }
+    .txn-sum-col { flex: 1; text-align: center; }
+    .txn-sum-label { font-size: 11px; color: var(--text-2); margin-bottom: 3px; font-weight: 500; }
+    .txn-sum-val { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .txn-sum-val.income  { color: var(--income); }
+    .txn-sum-val.expense { color: var(--expense); }
+
     /* ── Transactions Screen Tabs ── */
-    .view-tabs { display: flex; border-bottom: 1px solid var(--border); margin: 0 var(--px); gap: 0; }
+    .view-tabs { display: flex; border-bottom: 1px solid var(--border); margin: 0; gap: 0; }
     .view-tab { flex: 1; padding: 10px 4px; font-size: 12px; font-weight: 500; color: var(--text-2); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
     .view-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
@@ -373,17 +391,43 @@
 
     <!-- Transactions -->
     <div id="transactions" class="screen active">
-      <div style="padding:14px 20px 4px"><h2 style="font-size:20px;font-weight:700">Transactions</h2></div>
-      <div class="month-nav">
-        <button class="month-nav-btn" onclick="navPrevMonth()">‹</button>
-        <span class="month-nav-label" id="txn-month-label">Jun 2026</span>
-        <button class="month-nav-btn" onclick="navNextMonth()">›</button>
+      <div class="txn-hdr">
+        <div class="txn-hdr-nav">
+          <button class="month-nav-btn" onclick="navPrevMonth()">‹</button>
+          <span class="month-nav-label" id="txn-month-label">Jun 2026</span>
+          <button class="month-nav-btn" onclick="navNextMonth()">›</button>
+        </div>
+        <div class="txn-hdr-icons">
+          <button class="txn-hdr-btn" title="Search" onclick="toggleTxnSearch()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
+          <button class="txn-hdr-btn" title="Filter" onclick="toggleTxnFilter()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="txn-search-bar" style="display:none;padding:6px 16px 8px;border-bottom:1px solid var(--border)">
+        <input id="txn-search-input" type="text" placeholder="Search transactions…" oninput="onTxnSearch(this.value)" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px">
       </div>
       <div class="view-tabs">
         <button class="view-tab active" data-vtab="daily"    onclick="setTxnView('daily',this)">Daily</button>
         <button class="view-tab"        data-vtab="calendar" onclick="setTxnView('calendar',this)">Calendar</button>
         <button class="view-tab"        data-vtab="monthly"  onclick="setTxnView('monthly',this)">Monthly</button>
         <button class="view-tab"        data-vtab="total"    onclick="setTxnView('total',this)">Total</button>
+      </div>
+      <div id="txn-summary-bar" class="txn-summary-bar" style="display:none">
+        <div class="txn-sum-col">
+          <div class="txn-sum-label">Income</div>
+          <div class="txn-sum-val income" id="txn-sum-income">₹0</div>
+        </div>
+        <div class="txn-sum-col">
+          <div class="txn-sum-label">Expenses</div>
+          <div class="txn-sum-val expense" id="txn-sum-expense">₹0</div>
+        </div>
+        <div class="txn-sum-col">
+          <div class="txn-sum-label">Total</div>
+          <div class="txn-sum-val" id="txn-sum-total">₹0</div>
+        </div>
       </div>
       <div id="txn-tag-bar" class="tag-filter-bar" style="display:none"></div>
       <div id="all-txn-list"></div>

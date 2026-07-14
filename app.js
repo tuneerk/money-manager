@@ -158,7 +158,10 @@ const state = {
   selectedBucketColor: '#54A0FF',
 
   splitwiseCollapsed: false,
+  txnSearchQuery:     '',
 };
+
+let _accountMap = new Map();
 
 // ─── Init ──────────────────────────────────────────────────────────────────
 async function init() {
@@ -430,27 +433,29 @@ function renderDayGroups(txns) {
     .map(([date, items]) => {
       const [y, m, d] = date.split('-').map(Number);
       const dow = new Date(y, m - 1, d).getDay();
-      const dayClass = dow === 0 ? 'sunday' : dow === 6 ? 'saturday' : '';
 
       const dayIncome  = items.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
       const dayExpense = items.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
 
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr  = new Date().toISOString().split('T')[0];
       const yesterStr = new Date(Date.now() - 864e5).toISOString().split('T')[0];
-      let dateLabel = DAY_NAMES[dow];
-      if (date === todayStr)   dateLabel = 'Today';
-      if (date === yesterStr)  dateLabel = 'Yest';
+      let dayLabel = DAY_NAMES[dow];
+      if (date === todayStr)  dayLabel = 'Today';
+      if (date === yesterStr) dayLabel = 'Yest';
+
+      const numCls  = dow === 0 ? 'sunday' : dow === 6 ? 'saturday' : '';
+      const pillCls = `day-pill${dow === 0 ? ' sunday' : dow === 6 ? ' saturday' : ''}`;
+      const mmYyyy  = `${String(m).padStart(2, '0')}.${y}`;
 
       return `
       <div class="day-group">
         <div class="day-group-header">
-          <div class="day-badge ${dayClass}">
-            <span class="day-num">${d}</span>
-            <span class="day-name">${dateLabel}</span>
-          </div>
+          <span class="day-num-big ${numCls}">${d}</span>
+          <span class="${pillCls}">${dayLabel}</span>
+          <span class="day-mmyy">${mmYyyy}</span>
           <div class="day-totals">
-            ${dayIncome  > 0 ? `<span class="day-income-total">+${state.currency}${fmt(dayIncome)}</span>` : ''}
-            ${dayExpense > 0 ? `<span class="day-expense-total">-${state.currency}${fmt(dayExpense)}</span>` : ''}
+            <span class="day-income-total">${state.currency}${fmt(dayIncome)}</span>
+            <span class="day-expense-total">-${state.currency}${fmt(dayExpense)}</span>
           </div>
         </div>
         ${items.map(txnHTML).join('')}
@@ -459,9 +464,17 @@ function renderDayGroups(txns) {
 }
 
 function txnHTML(t) {
-  const meta = getCatMeta(t.categoryName);
-  const sign = t.type === 'income' ? '+' : t.type === 'transfer' ? '⇄' : '-';
-  const cls  = t.type === 'income' ? 'income' : t.type === 'transfer' ? 'transfer' : 'expense';
+  const meta    = getCatMeta(t.categoryName);
+  const sign    = t.type === 'income' ? '+' : t.type === 'transfer' ? '⇄' : '-';
+  const cls     = t.type === 'income' ? 'income' : t.type === 'transfer' ? 'transfer' : 'expense';
+  const desc    = t.note || t.merchant || '';
+  const accName = _accountMap.get(t.accountId) || '';
+  const subLine = t.subcategoryName || '';
+
+  const descRow = desc    ? `<div class="txn-desc">${desc}</div>`      : '';
+  const accRow  = accName ? `<div class="txn-acc">${accName}</div>`    : '';
+  const tagRow  = t.tag   ? `<span class="txn-tag-chip" data-tag="${t.tag.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" onclick="event.stopPropagation();openTagDetail(this.dataset.tag)">#${t.tag}</span>` : '';
+
   return `
     <div class="txn-swipe-wrap">
       <div class="txn-swipe-actions">
@@ -472,10 +485,12 @@ function txnHTML(t) {
       </div>
       <div class="txn-row" onclick="_txnTap(event,${t.id})">
         <div class="txn-icon" style="background:${meta.darkBg}">${meta.icon}</div>
-        <div class="txn-info">
-          <div class="txn-cat">${t.categoryName || 'Uncategorised'}</div>
-          <div class="txn-sub">${t.note || t.merchant || t.subcategoryName || ''}</div>
-          ${t.tag ? `<span class="txn-tag-chip" data-tag="${t.tag.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" onclick="event.stopPropagation();openTagDetail(this.dataset.tag)">#${t.tag}</span>` : ''}
+        <div class="txn-cat-block">
+          <div class="txn-cat">${t.categoryName || 'Other'}</div>
+          ${subLine ? `<div class="txn-sub">${subLine}</div>` : ''}
+        </div>
+        <div class="txn-main">
+          ${descRow}${accRow}${tagRow}
         </div>
         <div class="txn-amount ${cls}">${sign}${state.currency}${fmt(t.amount)}</div>
       </div>
@@ -483,6 +498,31 @@ function txnHTML(t) {
 }
 
 // ─── Transactions Screen ────────────────────────────────────────────────────
+function toggleTxnSearch() {
+  const bar   = document.getElementById('txn-search-bar');
+  const input = document.getElementById('txn-search-input');
+  const visible = bar.style.display !== 'none';
+  bar.style.display = visible ? 'none' : 'block';
+  if (!visible) { input.value = ''; state.txnSearchQuery = ''; input.focus(); }
+  else          { state.txnSearchQuery = ''; refreshTxnList(); }
+}
+
+function toggleTxnFilter() {
+  const bar = document.getElementById('txn-tag-bar');
+  if (bar.style.display === 'none') {
+    bar.style.display = 'flex';
+  } else {
+    bar.style.display = 'none';
+    state.txnTagFilter = '';
+    refreshTxnList();
+  }
+}
+
+function onTxnSearch(q) {
+  state.txnSearchQuery = q.trim();
+  refreshTxnList();
+}
+
 function setTxnView(tab, el) {
   state.txnViewTab = tab;
   document.querySelectorAll('.view-tab').forEach(b => b.classList.remove('active'));
@@ -494,18 +534,25 @@ async function refreshTxnList() {
   _closeActiveSwipe(true);
   _swipeWrap = null;
   updateMonthLabels();
-  const list = document.getElementById('all-txn-list');
-
+  const list     = document.getElementById('all-txn-list');
+  const summaryEl = document.getElementById('txn-summary-bar');
   const txnTagBar = document.getElementById('txn-tag-bar');
+
+  // Preload accounts for display in txn rows
+  const accs = await db.accounts.toArray();
+  _accountMap.clear();
+  for (const a of accs) _accountMap.set(a.id, a.name);
 
   if (state.txnViewTab === 'calendar') {
     txnTagBar.style.display = 'none';
+    if (summaryEl) summaryEl.style.display = 'none';
     await renderCalendarView(list);
     return;
   }
 
   if (state.txnViewTab === 'monthly') {
     txnTagBar.style.display = 'none';
+    if (summaryEl) summaryEl.style.display = 'none';
     await renderMonthlyYearView(list);
     return;
   }
@@ -514,6 +561,19 @@ async function refreshTxnList() {
   const all = await db.transactions.where('date').between(start, end, true, true).toArray();
   all.sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt));
 
+  // Update summary bar
+  if (summaryEl) {
+    const monthIncome  = all.filter(t => t.type === 'income').reduce((s, t)  => s + t.amount, 0);
+    const monthExpense = all.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+    const monthTotal   = monthIncome - monthExpense;
+    document.getElementById('txn-sum-income').textContent  = state.currency + fmt(monthIncome);
+    document.getElementById('txn-sum-expense').textContent = state.currency + fmt(monthExpense);
+    const totalEl = document.getElementById('txn-sum-total');
+    totalEl.textContent  = (monthTotal < 0 ? '-' : '') + state.currency + fmt(Math.abs(monthTotal));
+    totalEl.style.color  = monthTotal >= 0 ? 'var(--income)' : 'var(--expense)';
+    summaryEl.style.display = 'flex';
+  }
+
   await renderTagFilterBar('txn-tag-bar', state.txnTagFilter, 'setTxnTagFilter');
 
   if (state.txnViewTab === 'total') {
@@ -521,7 +581,20 @@ async function refreshTxnList() {
     return;
   }
 
-  const display = state.txnTagFilter ? all.filter(t => t.tag === state.txnTagFilter) : all;
+  let display = state.txnTagFilter ? all.filter(t => t.tag === state.txnTagFilter) : all;
+
+  // Apply search filter
+  if (state.txnSearchQuery) {
+    const q = state.txnSearchQuery.toLowerCase();
+    display = display.filter(t =>
+      (t.categoryName || '').toLowerCase().includes(q) ||
+      (t.subcategoryName || '').toLowerCase().includes(q) ||
+      (t.merchant || '').toLowerCase().includes(q) ||
+      (t.note || '').toLowerCase().includes(q) ||
+      (_accountMap.get(t.accountId) || '').toLowerCase().includes(q)
+    );
+  }
+
   if (display.length === 0) {
     list.innerHTML = '<p class="empty-state">No transactions this month.</p>';
     return;
