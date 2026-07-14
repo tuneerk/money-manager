@@ -236,17 +236,22 @@
     .net-worth-row { padding: 4px var(--px) 14px; }
     .net-worth-label { font-size: 12px; color: var(--text-2); }
     .net-worth-amount { font-size: clamp(26px, 8vw, 32px); font-weight: 700; }
-    .acc-group-header { padding: 10px var(--px) 4px; font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .5px; display: flex; justify-content: space-between; }
+    .acc-group-header { padding: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .5px; display: flex; justify-content: space-between; }
     .acc-group-total { color: var(--text-2); text-transform: none; font-weight: 500; }
-    .account-row { display: flex; align-items: center; gap: 14px; padding: 14px var(--px); border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; }
-    .account-row:active { background: var(--surface2); }
-    .acc-icon-circle { width: 42px; height: 42px; border-radius: 50%; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
-    .acc-info { flex: 1; }
-    .acc-name { font-size: 15px; font-weight: 500; }
-    .acc-type { font-size: 12px; color: var(--text-2); }
-    .acc-balance { font-size: 16px; font-weight: 700; }
-    .acc-balance.positive { color: var(--income); }
-    .acc-balance.negative { color: var(--expense); }
+    #accounts-list { padding: 0 var(--px) 16px; }
+    .acc-cards-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .acc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px; cursor: pointer; transition: background .15s; }
+    .acc-card:active { background: var(--surface2); }
+    .acc-card-icon { font-size: 28px; line-height: 1; margin-bottom: 10px; }
+    .acc-card-name { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+    .acc-card-type { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
+    .acc-card-balance { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .acc-card-balance.positive { color: var(--income); }
+    .acc-card-balance.negative { color: var(--expense); }
+    .acc-card-util { margin-top: 8px; }
+    .acc-card-util-label { font-size: 10px; color: var(--text-3); }
+    .acc-card-util-bar { height: 3px; background: var(--border); border-radius: 2px; margin-top: 3px; }
+    .acc-card-util-fill { height: 100%; border-radius: 2px; transition: width .3s; }
     .acc-actions { display: flex; gap: 10px; padding: 12px var(--px); }
     .acc-icon-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
     .acc-icon-option { font-size: 24px; padding: 8px; border: 2px solid var(--border); border-radius: var(--radius-sm); background: none; cursor: pointer; }

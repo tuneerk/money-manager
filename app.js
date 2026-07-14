@@ -1531,7 +1531,7 @@ async function refreshAccounts() {
       if (items.length === 0) continue;
       const groupTotal = items.reduce((s, a) => s + (a.balance || 0), 0);
       html += `<div class="acc-group-header"><span>${groupName}</span><span class="acc-group-total">${state.currency}${fmt(Math.abs(groupTotal))}</span></div>`;
-      html += items.map(a => accountRowHTML(a)).join('');
+      html += `<div class="acc-cards-grid">${items.map(a => accountRowHTML(a)).join('')}</div>`;
     }
     list.innerHTML = html;
   }
@@ -1557,36 +1557,25 @@ function accountRowHTML(a) {
   const utilPct     = hasLimit ? Math.min(100, Math.round(outstanding / a.limit * 100)) : null;
   const barColor    = utilPct >= 80 ? 'var(--expense)' : utilPct >= 50 ? '#FFD700' : 'var(--income)';
 
-  const balanceHTML = isCC ? `
-    <div style="text-align:right;flex-shrink:0">
-      <div class="acc-balance ${outstanding > 0 ? 'negative' : 'positive'}">
-        ${outstanding > 0 ? '-' : ''}${state.currency}${fmt(outstanding)}
-      </div>
-      ${hasLimit ? `<div style="font-size:11px;color:var(--text-2);margin-top:1px">${state.currency}${fmt(available)} free</div>` : ''}
-    </div>` : `
-    <div class="acc-balance ${balance >= 0 ? 'positive' : 'negative'}">
-      ${state.currency}${fmt(Math.abs(balance))}
-    </div>`;
+  const displayBalance = isCC ? outstanding : Math.abs(balance);
+  const balanceCls    = isCC ? (outstanding > 0 ? 'negative' : 'positive') : (balance >= 0 ? 'positive' : 'negative');
+  const balanceSign   = (isCC && outstanding > 0) || (!isCC && balance < 0) ? '-' : '';
 
-  const utilizationHTML = hasLimit ? `
-    <div style="margin-top:5px">
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);margin-bottom:2px">
-        <span>Utilisation</span><span>${utilPct}% of ${state.currency}${fmt(a.limit)}</span>
-      </div>
-      <div style="height:3px;background:var(--border);border-radius:2px">
-        <div style="width:${utilPct}%;height:100%;border-radius:2px;background:${barColor};transition:width .3s"></div>
+  const utilHTML = hasLimit ? `
+    <div class="acc-card-util">
+      <div class="acc-card-util-label">${utilPct}% used · ${state.currency}${fmt(available)} free</div>
+      <div class="acc-card-util-bar">
+        <div class="acc-card-util-fill" style="width:${utilPct}%;background:${barColor}"></div>
       </div>
     </div>` : '';
 
   return `
-    <div class="account-row" onclick="openAccountSheet(${a.id})">
-      <div class="acc-icon-circle">${a.icon || '🏦'}</div>
-      <div class="acc-info" style="flex:1;min-width:0">
-        <div class="acc-name">${a.name}</div>
-        <div class="acc-type">${a.type}</div>
-        ${utilizationHTML}
-      </div>
-      ${balanceHTML}
+    <div class="acc-card" onclick="openAccountSheet(${a.id})">
+      <div class="acc-card-icon">${a.icon || '🏦'}</div>
+      <div class="acc-card-name">${a.name}</div>
+      <div class="acc-card-type">${a.type}</div>
+      <div class="acc-card-balance ${balanceCls}">${balanceSign}${state.currency}${fmt(displayBalance)}</div>
+      ${utilHTML}
     </div>`;
 }
 
