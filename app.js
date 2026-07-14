@@ -312,6 +312,11 @@ function setupGlobalListeners() {
       state.selectedBucketColor = sw.dataset.color;
     });
   });
+
+  setupSheetDismiss();
+  setupTxnSwipe();
+  setupPTR('transactions',    () => refreshTxnList());
+  setupPTR('accounts-screen', () => refreshAccounts());
 }
 
 // ─── Month Navigation ───────────────────────────────────────────────────────
@@ -457,16 +462,23 @@ function txnHTML(t) {
   const meta = getCatMeta(t.categoryName);
   const sign = t.type === 'income' ? '+' : t.type === 'transfer' ? '⇄' : '-';
   const cls  = t.type === 'income' ? 'income' : t.type === 'transfer' ? 'transfer' : 'expense';
-  const clickFn = t.type === 'transfer' ? `deleteTxnPrompt(${t.id})` : `openEditSheet(${t.id})`;
   return `
-    <div class="txn-row" onclick="${clickFn}">
-      <div class="txn-icon" style="background:${meta.darkBg}">${meta.icon}</div>
-      <div class="txn-info">
-        <div class="txn-cat">${t.categoryName || 'Uncategorised'}</div>
-        <div class="txn-sub">${t.note || t.merchant || t.subcategoryName || ''}</div>
-        ${t.tag ? `<span class="txn-tag-chip" data-tag="${t.tag.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" onclick="event.stopPropagation();openTagDetail(this.dataset.tag)">#${t.tag}</span>` : ''}
+    <div class="txn-swipe-wrap">
+      <div class="txn-swipe-actions">
+        <button class="txn-swipe-del" onclick="event.stopPropagation();_swipeDelete(${t.id})">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          Delete
+        </button>
       </div>
-      <div class="txn-amount ${cls}">${sign}${state.currency}${fmt(t.amount)}</div>
+      <div class="txn-row" onclick="_txnTap(event,${t.id})">
+        <div class="txn-icon" style="background:${meta.darkBg}">${meta.icon}</div>
+        <div class="txn-info">
+          <div class="txn-cat">${t.categoryName || 'Uncategorised'}</div>
+          <div class="txn-sub">${t.note || t.merchant || t.subcategoryName || ''}</div>
+          ${t.tag ? `<span class="txn-tag-chip" data-tag="${t.tag.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" onclick="event.stopPropagation();openTagDetail(this.dataset.tag)">#${t.tag}</span>` : ''}
+        </div>
+        <div class="txn-amount ${cls}">${sign}${state.currency}${fmt(t.amount)}</div>
+      </div>
     </div>`;
 }
 
@@ -479,6 +491,8 @@ function setTxnView(tab, el) {
 }
 
 async function refreshTxnList() {
+  _closeActiveSwipe(true);
+  _swipeWrap = null;
   updateMonthLabels();
   const list = document.getElementById('all-txn-list');
 
@@ -3110,3 +3124,190 @@ async function installPWA() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ─── Gestures ────────────────────────────────────────────────────────────────
+
+// Back button — closes top-most active overlay; "press again to exit" toast
+let _backPressTime = 0;
+history.pushState({ mm: true }, '');
+window.addEventListener('popstate', () => {
+  const overlays = [...document.querySelectorAll('.overlay-bg.active')];
+  if (overlays.length > 0) {
+    closeOverlay(overlays[overlays.length - 1].id);
+    history.pushState({ mm: true }, '');
+    return;
+  }
+  const now = Date.now();
+  if (now - _backPressTime < 2000) { _backPressTime = 0; return; }
+  _backPressTime = now;
+  showToast('Press back again to exit');
+  history.pushState({ mm: true }, '');
+});
+
+// Swipe-down to dismiss sheets ───────────────────────────────────────────────
+function setupSheetDismiss() {
+  document.querySelectorAll('.overlay-bg .sheet').forEach(sheet => {
+    let startY = 0, curY = 0, dragging = false;
+    const bg = sheet.closest('.overlay-bg');
+
+    sheet.addEventListener('touchstart', e => {
+      const t = e.touches[0];
+      startY   = t.clientY;
+      curY     = t.clientY;
+      dragging = true;
+      sheet.style.transition = 'none';
+    }, { passive: true });
+
+    sheet.addEventListener('touchmove', e => {
+      if (!dragging) return;
+      curY = e.touches[0].clientY;
+      const dy = Math.max(0, curY - startY);
+      sheet.style.transform = `translateY(${dy}px)`;
+    }, { passive: true });
+
+    sheet.addEventListener('touchend', () => {
+      if (!dragging) return;
+      dragging = false;
+      const dy = Math.max(0, curY - startY);
+      sheet.style.transition = 'transform .28s cubic-bezier(.32,0,.67,0)';
+      if (dy > 120) {
+        sheet.style.transform = `translateY(100%)`;
+        setTimeout(() => {
+          sheet.style.transform = '';
+          sheet.style.transition = '';
+          if (bg) closeOverlay(bg.id);
+        }, 280);
+      } else {
+        sheet.style.transform = '';
+      }
+    });
+  });
+}
+
+// Pull-to-refresh ─────────────────────────────────────────────────────────────
+function setupPTR(screenId, onRefresh) {
+  const el = document.getElementById(screenId);
+  if (!el) return;
+
+  const bar = document.createElement('div');
+  bar.className = 'ptr-bar';
+  bar.innerHTML = `<svg class="ptr-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg><span class="ptr-label">Pull to refresh</span>`;
+  el.insertBefore(bar, el.firstChild);
+
+  let startY = 0, pulling = false;
+  const THRESHOLD = 72;
+
+  el.addEventListener('touchstart', e => {
+    if (el.scrollTop !== 0) return;
+    startY  = e.touches[0].clientY;
+    pulling = true;
+  }, { passive: true });
+
+  el.addEventListener('touchmove', e => {
+    if (!pulling) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) return;
+    bar.classList.add('ptr-visible');
+    bar.classList.toggle('ptr-ready', dy >= THRESHOLD);
+    bar.querySelector('.ptr-label').textContent = dy >= THRESHOLD ? 'Release to refresh' : 'Pull to refresh';
+  }, { passive: true });
+
+  el.addEventListener('touchend', async () => {
+    if (!pulling) return;
+    pulling = false;
+    if (!bar.classList.contains('ptr-ready')) {
+      bar.classList.remove('ptr-visible', 'ptr-ready');
+      return;
+    }
+    bar.classList.remove('ptr-ready');
+    bar.classList.add('ptr-loading');
+    bar.querySelector('.ptr-label').textContent = 'Refreshing…';
+    await onRefresh();
+    bar.classList.remove('ptr-loading', 'ptr-visible');
+    bar.querySelector('.ptr-label').textContent = 'Pull to refresh';
+  });
+}
+
+// Transaction swipe-to-delete ─────────────────────────────────────────────────
+let _swipeWrap = null;   // currently-open swipe wrapper
+
+function _closeActiveSwipe(skipAnim) {
+  if (!_swipeWrap) return;
+  const row = _swipeWrap.querySelector('.txn-row');
+  if (row) {
+    row.style.transition = skipAnim ? 'none' : 'transform .22s ease';
+    row.style.transform  = 'translateX(0)';
+  }
+  _swipeWrap = null;
+}
+
+function _txnTap(e, id) {
+  if (_swipeWrap) {
+    _closeActiveSwipe();
+    return;
+  }
+  openEditSheet(id);
+}
+
+async function _swipeDelete(id) {
+  _closeActiveSwipe(true);
+  await deleteTxnPrompt(id);
+}
+
+function setupTxnSwipe() {
+  const list = document.getElementById('all-txn-list');
+  if (!list) return;
+
+  const DEL_WIDTH = 76;
+  let startX = 0, startY = 0, wrap = null, row = null, swiping = false, axis = null;
+
+  list.addEventListener('touchstart', e => {
+    const w = e.target.closest('.txn-swipe-wrap');
+    if (!w) return;
+    startX  = e.touches[0].clientX;
+    startY  = e.touches[0].clientY;
+    wrap    = w;
+    row     = w.querySelector('.txn-row');
+    axis    = null;
+    swiping = true;
+  }, { passive: true });
+
+  list.addEventListener('touchmove', e => {
+    if (!swiping || !row) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    if (!axis) {
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+    if (axis !== 'x') return;
+
+    // Close any other open swipe
+    if (_swipeWrap && _swipeWrap !== wrap) _closeActiveSwipe();
+
+    const clamped = Math.min(0, Math.max(-DEL_WIDTH, dx));
+    row.style.transition = 'none';
+    row.style.transform  = `translateX(${clamped}px)`;
+  }, { passive: true });
+
+  list.addEventListener('touchend', () => {
+    if (!swiping || !row || axis !== 'x') { swiping = false; return; }
+    swiping = false;
+    const cur = new DOMMatrix(getComputedStyle(row).transform).m41;
+    row.style.transition = 'transform .22s ease';
+    if (cur < -DEL_WIDTH / 2) {
+      row.style.transform = `translateX(-${DEL_WIDTH}px)`;
+      _swipeWrap = wrap;
+    } else {
+      row.style.transform = 'translateX(0)';
+      _swipeWrap = null;
+    }
+    row = null; wrap = null; axis = null;
+  });
+
+  // Close on tap outside
+  document.addEventListener('touchstart', e => {
+    if (_swipeWrap && !_swipeWrap.contains(e.target)) _closeActiveSwipe();
+  }, { passive: true });
+}

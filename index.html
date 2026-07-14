@@ -94,8 +94,29 @@
     .day-income-total  { font-size: 12px; color: var(--income); font-weight: 600; }
     .day-expense-total { font-size: 12px; color: var(--expense); font-weight: 600; }
 
+    /* ── Swipe-to-delete ── */
+    .txn-swipe-wrap { position: relative; overflow: hidden; }
+    .txn-swipe-actions { position: absolute; right: 0; top: 0; bottom: 0; display: flex; }
+    .txn-swipe-del {
+      width: 76px; background: var(--expense); color: white; border: none;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0;
+    }
+
+    /* ── Pull-to-refresh ── */
+    .ptr-bar {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      height: 0; overflow: hidden; color: var(--text-3); font-size: 13px;
+      transition: height .2s ease;
+    }
+    .ptr-bar.ptr-visible { height: 52px; }
+    @keyframes _ptr-spin { to { transform: rotate(360deg); } }
+    .ptr-bar .ptr-icon { transition: transform .25s; }
+    .ptr-bar.ptr-ready .ptr-icon { transform: rotate(180deg); }
+    .ptr-bar.ptr-loading .ptr-icon { animation: _ptr-spin .7s linear infinite; }
+
     /* ── Transaction Row (dark) ── */
-    .txn-row { display: flex; align-items: center; gap: 12px; padding: 11px 8px; border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; }
+    .txn-row { display: flex; align-items: center; gap: 12px; padding: 11px 8px; border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; position: relative; z-index: 1; background: var(--bg); }
     .txn-row:last-child { border-bottom: none; }
     .txn-row:active { background: var(--surface2); border-radius: 10px; }
     .txn-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
