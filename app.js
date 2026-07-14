@@ -142,6 +142,7 @@ const state = {
   voiceAlternates:  [],
   voiceMode:        'idle',
   pendingMultiTxns: [],
+  pendingSplitwiseImportTo: null,
   editingMultiIdx:  null,
   readbackEnabled:  true,
 
@@ -1069,6 +1070,10 @@ async function saveTransaction() {
       renderMultiTxnList();
       openOverlay('multi-txn-sheet');
     } else {
+      if (state.pendingSplitwiseImportTo) {
+        await db.settings.put({ key: 'splitwiseLastImport', value: state.pendingSplitwiseImportTo });
+        state.pendingSplitwiseImportTo = null;
+      }
       showToast('All transactions saved');
     }
     return;
@@ -1081,6 +1086,12 @@ async function saveTransaction() {
     await sleep(350);
     await openMultiTxnStep(next, idx);
     return;
+  }
+
+  // Last transaction in a sequential review — save Splitwise import date now
+  if (state.pendingSplitwiseImportTo) {
+    await db.settings.put({ key: 'splitwiseLastImport', value: state.pendingSplitwiseImportTo });
+    state.pendingSplitwiseImportTo = null;
   }
 
   showToast(`${state.currentType === 'income' ? 'Income' : 'Expense'} saved`, true);
@@ -2224,7 +2235,7 @@ async function openSplitwiseDetail() {
 async function openSplitwiseImport() {
   const today         = new Date().toISOString().split('T')[0];
   const lastImportRow = await db.settings.get('splitwiseLastImport');
-  const from          = lastImportRow?.value || new Date(Date.now() - 30 * 864e5).toISOString().split('T')[0];
+  const from          = lastImportRow?.value || new Date(Date.now() - 90 * 864e5).toISOString().split('T')[0];
   document.getElementById('sw-import-from').value    = from;
   document.getElementById('sw-import-to').value      = today;
   document.getElementById('sw-import-status').textContent = lastImportRow?.value
@@ -2313,7 +2324,7 @@ async function fetchSplitwiseExpenses() {
 async function importSinceLastPull() {
   const today         = new Date().toISOString().split('T')[0];
   const lastImportRow = await db.settings.get('splitwiseLastImport');
-  const from          = lastImportRow?.value || new Date(Date.now() - 30 * 864e5).toISOString().split('T')[0];
+  const from          = lastImportRow?.value || new Date(Date.now() - 90 * 864e5).toISOString().split('T')[0];
   const importBtn     = document.getElementById('sw-import-btn');
   if (importBtn) importBtn.disabled = true;
   showToast('Fetching Splitwise expenses…');
@@ -2367,7 +2378,7 @@ async function _doSplitwiseImport(from, to, onStatus, closeSheet) {
       };
     });
 
-    await db.settings.put({ key: 'splitwiseLastImport', value: to });
+    state.pendingSplitwiseImportTo = to;
     if (closeSheet) closeOverlay('sw-import-sheet');
     state.pendingMultiTxns = txns;
     state.multiTxnTotal    = txns.length;
@@ -3261,6 +3272,10 @@ async function saveMultiTxn(idx) {
 async function bulkSaveTxns(txns) {
   for (const t of txns) {
     await db.transactions.add({ type:t.type||'expense', amount:t.amount, categoryId:null, subcategoryId:null, categoryName:t.categoryName||'', subcategoryName:t.subcategoryName||'', accountId:null, date:t.date||new Date().toISOString().split('T')[0], note:t.note||'', merchant:t.merchant||'', receiptImage:null, createdAt:Date.now(), splitwiseId:t.splitwiseId||null });
+  }
+  if (state.pendingSplitwiseImportTo) {
+    await db.settings.put({ key: 'splitwiseLastImport', value: state.pendingSplitwiseImportTo });
+    state.pendingSplitwiseImportTo = null;
   }
   closeOverlay('multi-txn-sheet');
   await refreshTxnList();
