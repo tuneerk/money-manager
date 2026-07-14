@@ -324,6 +324,8 @@
     .toggle::after { content: ''; position: absolute; width: 20px; height: 20px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: left .2s; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
     .toggle.on { background: var(--income); }
     .toggle.on::after { left: 23px; }
+    .sw-range-chip { padding:10px 12px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:13px;font-weight:500;cursor:pointer;text-align:center;transition:border-color .15s,color .15s,background .15s; }
+    .sw-range-chip.active { border-color:var(--accent);color:var(--accent);background:rgba(91,197,167,.08); }
 
     /* ── Voice Sheet ── */
     .voice-mic-area { display: flex; flex-direction: column; align-items: center; padding: 24px 0; }
@@ -666,11 +668,10 @@
       <div class="acc-detail-section-label" id="acc-detail-section-label">Transactions</div>
       <div id="acc-detail-txns"></div>
       <div id="acc-detail-footer" style="padding:12px var(--px) 4px;display:none">
-        <button id="sw-import-btn" onclick="importSinceLastPull()" style="width:100%;padding:12px;background:rgba(91,197,167,.1);border:1.5px solid rgba(91,197,167,.3);border-radius:10px;color:#3aab8c;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">
+        <button id="sw-import-btn" onclick="openSplitwiseImport()" style="width:100%;padding:12px;background:rgba(91,197,167,.1);border:1.5px solid rgba(91,197,167,.3);border-radius:10px;color:#3aab8c;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span id="sw-import-btn-label">Import Expenses</span>
         </button>
-        <button onclick="openSplitwiseImport()" style="width:100%;padding:8px;margin-top:6px;background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer">Custom date range</button>
       </div>
     </div>
 
@@ -1083,14 +1084,22 @@
       <div class="sheet-title">Import from Splitwise</div>
       <button class="icon-btn" onclick="closeOverlay('sw-import-sheet')">✕</button>
     </div>
-    <div style="padding:20px var(--px)">
-      <div style="margin-bottom:14px">
-        <label style="font-size:12px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">From</label>
-        <input type="date" id="sw-import-from" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:15px">
+    <div style="padding:16px var(--px) 24px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+        <button id="sw-chip-lastpull" class="sw-range-chip" onclick="swSelectChip('lastpull')">Since last pull</button>
+        <button class="sw-range-chip" onclick="swSelectChip(90)">Last 90 days</button>
+        <button class="sw-range-chip" onclick="swSelectChip(180)">Last 6 months</button>
+        <button class="sw-range-chip" onclick="swSelectChip(365)">Last year</button>
       </div>
-      <div style="margin-bottom:24px">
-        <label style="font-size:12px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">To</label>
-        <input type="date" id="sw-import-to" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:15px">
+      <div style="display:flex;gap:10px;margin-bottom:20px">
+        <div style="flex:1">
+          <label style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">From</label>
+          <input type="date" id="sw-import-from" oninput="swClearChips()" style="width:100%;padding:9px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">To</label>
+          <input type="date" id="sw-import-to" oninput="swClearChips()" style="width:100%;padding:9px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box">
+        </div>
       </div>
       <button onclick="fetchSplitwiseExpenses()" style="width:100%;padding:14px;background:var(--accent);border:none;border-radius:10px;color:white;font-size:15px;font-weight:600;cursor:pointer">Fetch Expenses</button>
       <p id="sw-import-status" style="font-size:13px;color:var(--text-3);text-align:center;margin-top:14px;min-height:18px"></p>

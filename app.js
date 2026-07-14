@@ -2233,15 +2233,36 @@ async function openSplitwiseDetail() {
 }
 
 async function openSplitwiseImport() {
-  const today         = new Date().toISOString().split('T')[0];
   const lastImportRow = await db.settings.get('splitwiseLastImport');
-  const from          = lastImportRow?.value || new Date(Date.now() - 90 * 864e5).toISOString().split('T')[0];
-  document.getElementById('sw-import-from').value    = from;
-  document.getElementById('sw-import-to').value      = today;
-  document.getElementById('sw-import-status').textContent = lastImportRow?.value
-    ? `Last import: ${lastImportRow.value}`
-    : '';
+  const lastPullChip  = document.getElementById('sw-chip-lastpull');
+  if (lastPullChip) {
+    lastPullChip.textContent = lastImportRow?.value
+      ? `Since last pull (${lastImportRow.value})`
+      : 'Since last pull (90 days)';
+  }
+  document.getElementById('sw-import-status').textContent = '';
+  await swSelectChip(lastImportRow?.value ? 'lastpull' : 90);
   openOverlay('sw-import-sheet');
+}
+
+function swClearChips() {
+  document.querySelectorAll('.sw-range-chip').forEach(c => c.classList.remove('active'));
+}
+
+async function swSelectChip(type) {
+  swClearChips();
+  const today = new Date().toISOString().split('T')[0];
+  let from;
+  if (type === 'lastpull') {
+    const row = await db.settings.get('splitwiseLastImport');
+    from = row?.value || new Date(Date.now() - 90 * 864e5).toISOString().split('T')[0];
+    document.getElementById('sw-chip-lastpull')?.classList.add('active');
+  } else {
+    from = new Date(Date.now() - type * 864e5).toISOString().split('T')[0];
+    document.querySelector(`.sw-range-chip[onclick="swSelectChip(${type})"]`)?.classList.add('active');
+  }
+  document.getElementById('sw-import-from').value = from;
+  document.getElementById('sw-import-to').value   = today;
 }
 
 async function aiMapSplitwiseCategories(uniqueSwCats) {
@@ -2320,17 +2341,6 @@ async function fetchSplitwiseExpenses() {
   await _doSplitwiseImport(from, to, msg => { statusEl.textContent = msg; }, true);
 }
 
-// Called directly from the detail screen footer button (no sheet needed)
-async function importSinceLastPull() {
-  const today         = new Date().toISOString().split('T')[0];
-  const lastImportRow = await db.settings.get('splitwiseLastImport');
-  const from          = lastImportRow?.value || new Date(Date.now() - 90 * 864e5).toISOString().split('T')[0];
-  const importBtn     = document.getElementById('sw-import-btn');
-  if (importBtn) importBtn.disabled = true;
-  showToast('Fetching Splitwise expenses…');
-  await _doSplitwiseImport(from, today, msg => showToast(msg), false);
-  if (importBtn) importBtn.disabled = false;
-}
 
 async function _doSplitwiseImport(from, to, onStatus, closeSheet) {
   try {
