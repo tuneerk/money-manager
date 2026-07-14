@@ -181,19 +181,14 @@
     .period-select-dark option { background: var(--surface); }
 
     /* ── Pie Chart ── */
-    #pie-wrap { display: flex; align-items: center; justify-content: center; padding: 10px 0; }
-    #pie-svg { overflow: visible; }
+    #pie-wrap { padding: 4px 0 0; }
+    #pie-svg { display: block; width: 100%; overflow: visible; }
 
     /* ── Cat List (stats) ── */
-    .stat-cat-row { display: flex; align-items: center; gap: 10px; padding: 10px var(--px); border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; }
-    .stat-cat-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .stat-cat-info { flex: 1; min-width: 0; }
-    .stat-cat-name { font-size: 14px; font-weight: 500; }
-    .stat-cat-bar-wrap { height: 3px; background: var(--border); border-radius: 2px; margin-top: 4px; }
-    .stat-cat-bar { height: 100%; border-radius: 2px; }
-    .stat-cat-right { text-align: right; flex-shrink: 0; }
-    .stat-cat-amt { font-size: 14px; font-weight: 600; }
-    .stat-pct-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-top: 2px; color: white; }
+    .stat-cat-row { display: flex; align-items: center; gap: 12px; padding: 12px var(--px); border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; }
+    .stat-pct-pill { min-width: 44px; padding: 5px 8px; border-radius: 8px; font-size: 12px; font-weight: 700; color: white; text-align: center; flex-shrink: 0; letter-spacing: .2px; }
+    .stat-cat-name { flex: 1; font-size: 15px; font-weight: 500; min-width: 0; }
+    .stat-cat-amt { font-size: 14px; font-weight: 600; flex-shrink: 0; font-variant-numeric: tabular-nums; color: var(--text); }
 
     /* ── Tag chips & filter bar ── */
     .txn-tag-chip { display: inline-block; font-size: 10px; padding: 2px 8px; background: rgba(255,255,255,.1); border-radius: 8px; margin-top: 3px; cursor: pointer; color: var(--text-2); }
@@ -459,7 +454,7 @@
         </select>
       </div>
       <div id="stats-tag-bar" class="tag-filter-bar" style="display:none"></div>
-      <div id="pie-wrap"><svg id="pie-svg" width="200" height="200" viewBox="0 0 200 200"></svg></div>
+      <div id="pie-wrap"><svg id="pie-svg" viewBox="0 0 320 240"></svg></div>
       <div id="cat-breakdown"></div>
     </div>
 

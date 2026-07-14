@@ -1131,27 +1131,13 @@ async function refreshReports() {
   breakdown.innerHTML = sorted.map(([catName, data], idx) => {
     const pct   = total > 0 ? Math.round(data.total / total * 100) : 0;
     const color = CHART_COLORS[idx % CHART_COLORS.length];
-    const budget = budgetByCatName[catName];
-    const budgetPct = budget ? Math.min(100, Math.round(data.total / budget * 100)) : null;
-    const budgetBar = budget ? `
-      <div class="budget-row">
-        <span class="budget-label">${state.currency}${fmt(data.total)}/${state.currency}${fmt(budget)}</span>
-        <div class="budget-track"><div class="budget-fill ${budgetPct >= 100 ? 'over' : ''}" style="width:${budgetPct}%"></div></div>
-        <span class="budget-pct">${budgetPct}%</span>
-      </div>` : '';
+    const meta  = getCatMeta(catName);
     const safeN = catName.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
     return `
       <div class="stat-cat-row" onclick="openCatDetail('${safeN}','${color}')">
-        <div class="stat-cat-dot" style="background:${color}"></div>
-        <div class="stat-cat-info">
-          <div class="stat-cat-name">${catName}</div>
-          <div class="stat-cat-bar-wrap"><div class="stat-cat-bar" style="width:${pct}%;background:${color}"></div></div>
-          ${budgetBar}
-        </div>
-        <div class="stat-cat-right">
-          <div class="stat-cat-amt">${state.currency}${fmt(data.total)}</div>
-          <div class="stat-pct-badge" style="background:${color}">${pct}%</div>
-        </div>
+        <div class="stat-pct-pill" style="background:${color}">${pct}%</div>
+        <div class="stat-cat-name">${meta.icon} ${catName}</div>
+        <div class="stat-cat-amt">${state.currency} ${fmtDec(data.total)}</div>
       </div>`;
   }).join('');
 
@@ -1160,35 +1146,77 @@ async function refreshReports() {
 function renderPieChart(sorted, total) {
   const svg = document.getElementById('pie-svg');
   if (!svg) return;
+
+  const W = 320, H = 240, cx = 155, cy = 118, r = 82;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
   if (sorted.length === 0 || total === 0) {
-    svg.innerHTML = `<circle cx="100" cy="100" r="70" fill="none" stroke="#3A3A50" stroke-width="28"/>`;
+    svg.innerHTML = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#2E2E42"/>
+      <text x="${cx}" y="${cy + 5}" text-anchor="middle" fill="#666688" font-size="12" font-family="system-ui">No data</text>`;
     return;
   }
 
-  const cx = 100, cy = 100, r = 70, strokeW = 28;
-  const circ = 2 * Math.PI * r;
-  let offset = 0;
-  let paths = '';
-  for (let i = 0; i < sorted.length; i++) {
-    const [, data] = sorted[i];
+  const TAU = 2 * Math.PI;
+  let startAngle = -Math.PI / 2;
+
+  const slices = sorted.map(([catName, data], i) => {
     const pct   = data.total / total;
-    const dash  = pct * circ;
-    const color = CHART_COLORS[i % CHART_COLORS.length];
-    paths += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
-      stroke="${color}" stroke-width="${strokeW}"
-      stroke-dasharray="${dash} ${circ - dash}"
-      stroke-dashoffset="${-offset}"
-      transform="rotate(-90 ${cx} ${cy})"/>`;
-    offset += dash;
+    const angle = pct * TAU;
+    const mid   = startAngle + angle / 2;
+    const s     = { catName, data, pct, angle, startAngle, endAngle: startAngle + angle, midAngle: mid, color: CHART_COLORS[i % CHART_COLORS.length] };
+    startAngle += angle;
+    return s;
+  });
+
+  // ── Solid pie slices ──
+  let html = '';
+  for (const s of slices) {
+    if (s.pct < 0.001) continue;
+    const x1 = cx + r * Math.cos(s.startAngle);
+    const y1 = cy + r * Math.sin(s.startAngle);
+    const x2 = cx + r * Math.cos(s.endAngle);
+    const y2 = cy + r * Math.sin(s.endAngle);
+    const lArc = s.angle > Math.PI ? 1 : 0;
+    html += `<path d="M${cx},${cy}L${x1.toFixed(1)},${y1.toFixed(1)}A${r},${r} 0 ${lArc},1 ${x2.toFixed(1)},${y2.toFixed(1)}Z" fill="${s.color}" stroke="#1C1C2A" stroke-width="0.8"/>`;
   }
 
-  const topName = sorted[0][0];
-  const topPct  = Math.round(sorted[0][1].total / total * 100);
-  svg.innerHTML = `
-    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#2E2E42" stroke-width="${strokeW}"/>
-    ${paths}
-    <text x="${cx}" y="${cy - 8}" text-anchor="middle" fill="#FFF" font-size="22" font-weight="700" font-family="system-ui">${topPct}%</text>
-    <text x="${cx}" y="${cy + 12}" text-anchor="middle" fill="#9999BB" font-size="11" font-family="system-ui">${topName.length > 12 ? topName.slice(0,12)+'…' : topName}</text>`;
+  // ── External labels (only ≥ 1.2%) ──
+  const labeled = slices.filter(s => s.pct >= 0.012);
+
+  // Separate left / right halves, sort by vertical midpoint
+  const rightGroup = labeled.filter(s => Math.cos(s.midAngle) >= 0).sort((a, b) => a.midAngle - b.midAngle);
+  const leftGroup  = labeled.filter(s => Math.cos(s.midAngle) <  0).sort((a, b) => a.midAngle - b.midAngle);
+
+  const MIN_GAP = 21;
+  function packY(group) {
+    const pts = group.map(s => ({ ...s, y: cy + (r + 22) * Math.sin(s.midAngle) }));
+    for (let i = 1; i < pts.length; i++)
+      if (pts[i].y - pts[i-1].y < MIN_GAP) pts[i].y = pts[i-1].y + MIN_GAP;
+    for (let i = pts.length - 2; i >= 0; i--)
+      if (pts[i+1].y - pts[i].y < MIN_GAP) pts[i].y = pts[i+1].y - MIN_GAP;
+    return pts;
+  }
+
+  for (const p of [...packY(rightGroup), ...packY(leftGroup)]) {
+    const right  = Math.cos(p.midAngle) >= 0;
+    const anchor = right ? 'start' : 'end';
+    const textX  = right ? W - 6 : 6;
+
+    // connector: pie-edge → elbow at (textX ∓ 30, p.y)
+    const ex  = cx + r * Math.cos(p.midAngle);
+    const ey  = cy + r * Math.sin(p.midAngle);
+    const knee = right ? textX - 28 : textX + 28;
+
+    const meta      = getCatMeta(p.catName);
+    const shortName = p.catName.length > 10 ? p.catName.slice(0, 10) + '…' : p.catName;
+    const pctStr    = (p.pct * 100).toFixed(1) + ' %';
+
+    html += `<polyline points="${ex.toFixed(1)},${ey.toFixed(1)} ${knee.toFixed(1)},${p.y.toFixed(1)} ${textX},${p.y.toFixed(1)}" fill="none" stroke="${p.color}" stroke-width="0.9" opacity="0.75"/>
+      <text x="${textX + (right ? 2 : -2)}" y="${p.y - 5}" text-anchor="${anchor}" fill="#FFFFFF" font-size="9.5" font-weight="700" font-family="system-ui,sans-serif">${meta.icon} ${shortName}</text>
+      <text x="${textX + (right ? 2 : -2)}" y="${p.y + 7}" text-anchor="${anchor}" fill="#9999BB" font-size="8.5" font-family="system-ui,sans-serif">${pctStr}</text>`;
+  }
+
+  svg.innerHTML = html;
 }
 
 async function renderBudgetManager(cats, budgetByCatName, catMap) {
@@ -3089,6 +3117,11 @@ async function useScanData() {
 function fmt(n) {
   if (typeof n !== 'number' || isNaN(n)) return '0';
   return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(Math.abs(n));
+}
+
+function fmtDec(n) {
+  if (typeof n !== 'number' || isNaN(n)) return '0.00';
+  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n));
 }
 
 function formatDate(dateStr) {
