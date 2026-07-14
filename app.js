@@ -1864,7 +1864,9 @@ async function refreshSplitwiseBalances() {
   }
   if (state.splitwiseCollapsed) {
     body.style.display = 'none';
+    const footer  = document.getElementById('splitwise-balances-footer');
     const chevron = document.getElementById('sw-chevron');
+    if (footer)  footer.style.display   = 'none';
     if (chevron) chevron.style.transform = 'rotate(-90deg)';
   }
 }
@@ -1872,9 +1874,12 @@ async function refreshSplitwiseBalances() {
 function toggleSplitwiseBalances() {
   state.splitwiseCollapsed = !state.splitwiseCollapsed;
   const body    = document.getElementById('splitwise-balances-body');
+  const footer  = document.getElementById('splitwise-balances-footer');
   const chevron = document.getElementById('sw-chevron');
-  if (body)    body.style.display          = state.splitwiseCollapsed ? 'none'            : 'block';
-  if (chevron) chevron.style.transform     = state.splitwiseCollapsed ? 'rotate(-90deg)'  : 'rotate(0deg)';
+  const show    = !state.splitwiseCollapsed;
+  if (body)    body.style.display    = show ? 'block' : 'none';
+  if (footer)  footer.style.display  = show ? 'block' : 'none';
+  if (chevron) chevron.style.transform = show ? 'rotate(0deg)' : 'rotate(-90deg)';
 }
 
 function openSplitwiseImport() {

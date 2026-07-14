@@ -405,25 +405,50 @@
         <div class="net-worth-label">Net Worth</div>
         <div class="net-worth-amount" id="net-worth">₹0</div>
       </div>
-      <div id="splitwise-balances-card" style="display:none;margin:0 var(--px) 10px;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden">
-        <div style="display:flex;align-items:center;padding:12px var(--px);cursor:pointer" onclick="toggleSplitwiseBalances()">
-          <span style="font-size:16px;margin-right:8px">💸</span>
-          <span style="font-size:14px;font-weight:600;flex:1">Splitwise Balances</span>
-          <button onclick="event.stopPropagation();openSplitwiseImport()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-2);font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px;cursor:pointer;margin-right:8px" title="Pull your share of Splitwise expenses into your transaction list">↓ Import Expenses</button>
-          <button onclick="event.stopPropagation();refreshSplitwiseBalances()" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 6px">↻</button>
-          <span id="sw-chevron" style="color:var(--text-3);font-size:16px;padding:4px 0 4px 4px;transition:transform .2s">▾</span>
-        </div>
-        <div id="splitwise-balances-summary" style="padding:0 var(--px)"></div>
-        <div id="splitwise-balances-body" style="padding:0 var(--px) 12px">
-          <p style="font-size:13px;color:var(--text-3)">Loading…</p>
-        </div>
-      </div>
       <div class="acc-actions">
         <button class="btn btn-primary" id="open-add-account-btn" style="flex:1;padding:12px">+ Add Account</button>
         <button class="btn btn-outline" onclick="openTransferSheet()" style="flex:1;padding:12px">⇄ Transfer</button>
       </div>
       <div id="accounts-list"></div>
       <div id="budget-section"></div>
+
+      <!-- Splitwise card — below all accounts & budgets -->
+      <div id="splitwise-balances-card" style="display:none;margin:16px var(--px) 24px;background:var(--surface);border-radius:14px;border:1px solid var(--border);overflow:hidden">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;padding:14px var(--px);cursor:pointer;-webkit-user-select:none;user-select:none" onclick="toggleSplitwiseBalances()">
+          <div style="width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#5BC5A7 0%,#38a88e 100%);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:12px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:600;line-height:1.25">Splitwise</div>
+            <div style="font-size:11px;color:var(--text-3);margin-top:2px">Shared expenses</div>
+          </div>
+          <button onclick="event.stopPropagation();refreshSplitwiseBalances()" style="background:none;border:none;color:var(--text-3);cursor:pointer;padding:8px;border-radius:8px;display:flex;align-items:center;justify-content:center" title="Refresh">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+          <div id="sw-chevron" style="color:var(--text-3);padding:6px;transition:transform .25s;display:flex;align-items:center;justify-content:center">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+
+        <!-- Totals summary — always visible -->
+        <div id="splitwise-balances-summary" style="padding:0 var(--px)"></div>
+
+        <!-- Per-person list — hidden when collapsed -->
+        <div id="splitwise-balances-body" style="padding:0 var(--px) 4px">
+          <p style="font-size:13px;color:var(--text-3);padding:8px 0">Loading…</p>
+        </div>
+
+        <!-- Import action — hidden when collapsed -->
+        <div id="splitwise-balances-footer" style="padding:8px var(--px) 14px">
+          <button onclick="openSplitwiseImport()" style="width:100%;padding:12px;background:rgba(91,197,167,.1);border:1.5px solid rgba(91,197,167,.3);border-radius:10px;color:#3aab8c;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Import Expenses
+          </button>
+        </div>
+      </div>
+
     </div>
 
     <!-- Settings -->
