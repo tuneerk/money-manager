@@ -1760,7 +1760,7 @@ async function testSplitwiseConnection() {
     statusEl.textContent = `✓ ${user.first_name}`;
     statusEl.style.color = 'var(--income)';
   } catch (err) {
-    statusEl.textContent = '✕ Failed';
+    statusEl.textContent = `✕ ${err.message}`;
     statusEl.style.color = 'var(--expense)';
     console.warn('[Splitwise] connection test failed:', err.message);
   }
