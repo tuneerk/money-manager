@@ -1167,12 +1167,12 @@ function renderPieChart(sorted, total) {
   const svg = document.getElementById('pie-svg');
   if (!svg) return;
 
-  // Label columns: 0–72 (left) and 288–360 (right), pie in the middle
-  const W = 360, H = 260, cx = 180, cy = 128, r = 86;
+  const W = 320, H = 200, cx = 160, cy = 100, R = 88, ri = 52;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
   if (sorted.length === 0 || total === 0) {
-    svg.innerHTML = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#2E2E42"/>
+    svg.innerHTML = `<circle cx="${cx}" cy="${cy}" r="${R}" fill="#2E2E42"/>
+      <circle cx="${cx}" cy="${cy}" r="${ri}" fill="#1C1C2A"/>
       <text x="${cx}" y="${cy + 5}" text-anchor="middle" fill="#666688" font-size="12" font-family="system-ui">No data</text>`;
     return;
   }
@@ -1189,52 +1189,38 @@ function renderPieChart(sorted, total) {
     return s;
   });
 
-  // ── Solid pie slices ──
+  // ── Donut slices ──
   let html = '';
   for (const s of slices) {
     if (s.pct < 0.001) continue;
-    const x1 = cx + r * Math.cos(s.startAngle);
-    const y1 = cy + r * Math.sin(s.startAngle);
-    const x2 = cx + r * Math.cos(s.endAngle);
-    const y2 = cy + r * Math.sin(s.endAngle);
     const lArc = s.angle > Math.PI ? 1 : 0;
-    html += `<path d="M${cx},${cy}L${x1.toFixed(1)},${y1.toFixed(1)}A${r},${r} 0 ${lArc},1 ${x2.toFixed(1)},${y2.toFixed(1)}Z" fill="${s.color}" stroke="#1C1C2A" stroke-width="0.8"/>`;
+    // Outer arc
+    const ox1 = cx + R  * Math.cos(s.startAngle), oy1 = cy + R  * Math.sin(s.startAngle);
+    const ox2 = cx + R  * Math.cos(s.endAngle),   oy2 = cy + R  * Math.sin(s.endAngle);
+    // Inner arc (reversed)
+    const ix1 = cx + ri * Math.cos(s.endAngle),   iy1 = cy + ri * Math.sin(s.endAngle);
+    const ix2 = cx + ri * Math.cos(s.startAngle), iy2 = cy + ri * Math.sin(s.startAngle);
+    html += `<path d="M${ox1.toFixed(1)},${oy1.toFixed(1)}A${R},${R} 0 ${lArc},1 ${ox2.toFixed(1)},${oy2.toFixed(1)}L${ix1.toFixed(1)},${iy1.toFixed(1)}A${ri},${ri} 0 ${lArc},0 ${ix2.toFixed(1)},${iy2.toFixed(1)}Z" fill="${s.color}" stroke="#1C1C2A" stroke-width="1.5"/>`;
+
+    // Inline percentage label for slices large enough to fit text (~12%+)
+    if (s.pct >= 0.12) {
+      const midR = (R + ri) / 2;
+      const lx   = cx + midR * Math.cos(s.midAngle);
+      const ly   = cy + midR * Math.sin(s.midAngle);
+      html += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="10.5" font-weight="700" font-family="system-ui,sans-serif" style="pointer-events:none">${(s.pct * 100).toFixed(0)}%</text>`;
+    }
   }
 
-  // ── External labels (only ≥ 1.2%) ──
-  const labeled = slices.filter(s => s.pct >= 0.012);
+  // ── Donut hole ──
+  html += `<circle cx="${cx}" cy="${cy}" r="${ri}" fill="#1C1C2A"/>`;
 
-  const rightGroup = labeled.filter(s => Math.cos(s.midAngle) >= 0).sort((a, b) => a.midAngle - b.midAngle);
-  const leftGroup  = labeled.filter(s => Math.cos(s.midAngle) <  0).sort((a, b) => a.midAngle - b.midAngle);
-
-  const MIN_GAP = 22;
-  function packY(group) {
-    const pts = group.map(s => ({ ...s, y: cy + (r + 22) * Math.sin(s.midAngle) }));
-    for (let i = 1; i < pts.length; i++)
-      if (pts[i].y - pts[i-1].y < MIN_GAP) pts[i].y = pts[i-1].y + MIN_GAP;
-    for (let i = pts.length - 2; i >= 0; i--)
-      if (pts[i+1].y - pts[i].y < MIN_GAP) pts[i].y = pts[i+1].y - MIN_GAP;
-    return pts;
-  }
-
-  for (const p of [...packY(rightGroup), ...packY(leftGroup)]) {
-    const right  = Math.cos(p.midAngle) >= 0;
-    // Labels sit just outside the pie; short 12px horizontal stub + diagonal
-    const knee   = right ? cx + r + 10 : cx - r - 10;   // 276 or 84
-    const textX  = right ? cx + r + 22 : cx - r - 22;   // 288 or 72
-    const anchor = right ? 'start' : 'end';
-
-    const ex = cx + r * Math.cos(p.midAngle);
-    const ey = cy + r * Math.sin(p.midAngle);
-
-    const meta      = getCatMeta(p.catName);
-    const shortName = p.catName.length > 9 ? p.catName.slice(0, 9) + '…' : p.catName;
-    const pctStr    = (p.pct * 100).toFixed(1) + '%';
-
-    html += `<polyline points="${ex.toFixed(1)},${ey.toFixed(1)} ${knee.toFixed(1)},${p.y.toFixed(1)} ${textX},${p.y.toFixed(1)}" fill="none" stroke="${p.color}" stroke-width="0.9" opacity="0.8"/>
-      <text x="${textX}" y="${p.y - 5}" text-anchor="${anchor}" fill="#FFFFFF" font-size="9.5" font-weight="600" font-family="system-ui,sans-serif">${meta.icon} ${shortName}</text>
-      <text x="${textX}" y="${p.y + 7}" text-anchor="${anchor}" fill="#9999BB" font-size="8.5" font-family="system-ui,sans-serif">${pctStr}</text>`;
-  }
+  // ── Center: top category ──
+  const top  = slices[0];
+  const meta = getCatMeta(top.catName);
+  const name = top.catName.length > 11 ? top.catName.slice(0, 11) + '…' : top.catName;
+  html += `<text x="${cx}" y="${cy - 13}" text-anchor="middle" fill="rgba(255,255,255,.55)" font-size="18" font-family="system-ui">${meta.icon}</text>
+    <text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#FFFFFF" font-size="9.5" font-weight="600" font-family="system-ui,sans-serif">${name}</text>
+    <text x="${cx}" y="${cy + 17}" text-anchor="middle" fill="#9999BB" font-size="9" font-family="system-ui,sans-serif">${(top.pct * 100).toFixed(1)}%</text>`;
 
   svg.innerHTML = html;
 }
