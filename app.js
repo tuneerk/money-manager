@@ -155,6 +155,8 @@ const state = {
   txnSubId:         null,
   txnSubName:       '',
   openCustomDD:     null,
+  openCustomDDEl:   null,
+  openCustomDDPar:  null,
 
   scanData:         null,
   scanImageB64:     null,
@@ -262,8 +264,9 @@ function setupGlobalListeners() {
 
   document.addEventListener('pointerdown', e => {
     if (!state.openCustomDD) return;
-    const dd = document.getElementById(state.openCustomDD);
-    if (dd && !dd.contains(e.target)) closeAllCustomDDs();
+    const dd     = document.getElementById(state.openCustomDD);
+    const portal = document.getElementById('dd-portal');
+    if (!dd?.contains(e.target) && !portal.contains(e.target)) closeAllCustomDDs();
   }, { capture: true });
 
   document.getElementById('save-txn-btn').addEventListener('click', saveTransaction);
@@ -995,21 +998,42 @@ function _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;')
 function toggleCustomDD(ddId) {
   if (state.openCustomDD === ddId) { closeAllCustomDDs(); return; }
   closeAllCustomDDs();
-  const btn  = document.querySelector(`#${ddId} .custom-dd-btn`);
-  const list = document.querySelector(`#${ddId} .custom-dd-list`);
-  btn.classList.add('open');
+
+  const dd     = document.getElementById(ddId);
+  const btn    = dd.querySelector('.custom-dd-btn');
+  const list   = dd.querySelector('.custom-dd-list');
+  const portal = document.getElementById('dd-portal');
+  const rect   = btn.getBoundingClientRect();
+  const winH   = window.innerHeight;
+  const spaceBelow = winH - rect.bottom - 8;
+
+  // Move the list into the body-level portal so position:fixed is viewport-relative
+  portal.appendChild(list);
   list.classList.add('open');
-  state.openCustomDD = ddId;
+
+  portal.style.left      = rect.left   + 'px';
+  portal.style.width     = rect.width  + 'px';
+  portal.style.top       = (rect.bottom + 4) + 'px';
+  portal.style.maxHeight = Math.min(240, spaceBelow) + 'px';
+  portal.style.display   = 'block';
+
+  btn.classList.add('open');
+  state.openCustomDD    = ddId;
+  state.openCustomDDEl  = list;
+  state.openCustomDDPar = dd;
 }
 
 function closeAllCustomDDs() {
   if (!state.openCustomDD) return;
-  const dd = document.getElementById(state.openCustomDD);
-  if (dd) {
-    dd.querySelector('.custom-dd-btn')?.classList.remove('open');
-    dd.querySelector('.custom-dd-list')?.classList.remove('open');
+  const portal = document.getElementById('dd-portal');
+  const btn    = document.querySelector(`#${state.openCustomDD} .custom-dd-btn`);
+  if (state.openCustomDDEl) {
+    state.openCustomDDEl.classList.remove('open');
+    state.openCustomDDPar?.appendChild(state.openCustomDDEl);
   }
-  state.openCustomDD = null;
+  portal.style.display = 'none';
+  btn?.classList.remove('open');
+  state.openCustomDD = state.openCustomDDEl = state.openCustomDDPar = null;
 }
 
 function selectCatOption(btn) {
@@ -1021,7 +1045,7 @@ function selectCatOption(btn) {
   const label = document.getElementById('txn-category-label');
   label.textContent = id ? `${icon} ${name}`.trim() : 'Select category';
   label.className   = id ? 'custom-dd-label' : 'custom-dd-label ph';
-  document.querySelectorAll('#txn-category-list .custom-dd-opt').forEach(b => b.classList.remove('selected'));
+  btn.closest('.custom-dd-list')?.querySelectorAll('.custom-dd-opt').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
   closeAllCustomDDs();
   if (id) loadSubcats();
@@ -1035,7 +1059,7 @@ function selectSubOption(btn) {
   const label = document.getElementById('txn-subcategory-label');
   label.textContent = id ? `${icon} ${name}`.trim() : 'No sub-category';
   label.className   = id ? 'custom-dd-label' : 'custom-dd-label ph';
-  document.querySelectorAll('#txn-subcategory-list .custom-dd-opt').forEach(b => b.classList.remove('selected'));
+  btn.closest('.custom-dd-list')?.querySelectorAll('.custom-dd-opt').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
   closeAllCustomDDs();
 }
