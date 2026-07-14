@@ -1798,8 +1798,9 @@ async function testSplitwiseConnection() {
 }
 
 async function refreshSplitwiseBalances() {
-  const card = document.getElementById('splitwise-balances-card');
-  const body = document.getElementById('splitwise-balances-body');
+  const card    = document.getElementById('splitwise-balances-card');
+  const summary = document.getElementById('splitwise-balances-summary');
+  const body    = document.getElementById('splitwise-balances-body');
   if (!card) return;
   const [enabledRow, urlRow] = await Promise.all([
     db.settings.get('splitwiseEnabled'),
@@ -1810,9 +1811,10 @@ async function refreshSplitwiseBalances() {
     return;
   }
   card.style.display = 'block';
-  body.innerHTML = '<p style="font-size:13px;color:var(--text-3)">Loading…</p>';
+  summary.innerHTML  = '';
+  body.innerHTML     = '<p style="font-size:13px;color:var(--text-3);padding:8px 0">Loading…</p>';
   try {
-    const data = await splitwiseFetch('/get_friends');
+    const data    = await splitwiseFetch('/get_friends');
     const friends = (data.friends || []).filter(f => f.balance?.length > 0);
 
     let totalOwed = 0, totalOwe = 0;
@@ -1840,23 +1842,23 @@ async function refreshSplitwiseBalances() {
 
     if (rows.length === 0) {
       body.innerHTML = '<p style="font-size:13px;color:var(--text-3);text-align:center;padding:8px 0">All settled up! 🎉</p>';
-      return;
+    } else {
+      summary.innerHTML = `
+        <div style="display:flex;padding:4px 0 8px">
+          <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(91,184,255,.08);border-radius:8px 0 0 8px">
+            <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">You are owed</div>
+            <div style="font-size:16px;font-weight:700;color:var(--income)">${state.currency}${fmt(totalOwed)}</div>
+          </div>
+          <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(255,96,96,.08);border-radius:0 8px 8px 0">
+            <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">You owe</div>
+            <div style="font-size:16px;font-weight:700;color:var(--expense)">${state.currency}${fmt(totalOwe)}</div>
+          </div>
+        </div>`;
+      body.innerHTML = rows.join('');
     }
-
-    body.innerHTML = `
-      <div style="display:flex;margin-bottom:12px">
-        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(91,184,255,.08);border-radius:8px 0 0 8px">
-          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">You are owed</div>
-          <div style="font-size:16px;font-weight:700;color:var(--income)">${state.currency}${fmt(totalOwed)}</div>
-        </div>
-        <div style="flex:1;text-align:center;padding:10px 8px;background:rgba(255,96,96,.08);border-radius:0 8px 8px 0">
-          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">You owe</div>
-          <div style="font-size:16px;font-weight:700;color:var(--expense)">${state.currency}${fmt(totalOwe)}</div>
-        </div>
-      </div>
-      ${rows.join('')}`;
   } catch (err) {
-    body.innerHTML = `<p style="font-size:13px;color:var(--expense)">Could not load: ${err.message}</p>`;
+    summary.innerHTML = '';
+    body.innerHTML    = `<p style="font-size:13px;color:var(--expense)">Could not load: ${err.message}</p>`;
     console.warn('[Splitwise] balance fetch failed:', err.message);
   }
   if (state.splitwiseCollapsed) {

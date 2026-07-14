@@ -409,11 +409,12 @@
         <div style="display:flex;align-items:center;padding:12px var(--px);cursor:pointer" onclick="toggleSplitwiseBalances()">
           <span style="font-size:16px;margin-right:8px">💸</span>
           <span style="font-size:14px;font-weight:600;flex:1">Splitwise Balances</span>
-          <button onclick="event.stopPropagation();openSplitwiseImport()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-2);font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px;cursor:pointer;margin-right:8px">↓ Import</button>
+          <button onclick="event.stopPropagation();openSplitwiseImport()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-2);font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px;cursor:pointer;margin-right:8px" title="Pull your share of Splitwise expenses into your transaction list">↓ Import Expenses</button>
           <button onclick="event.stopPropagation();refreshSplitwiseBalances()" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 6px">↻</button>
           <span id="sw-chevron" style="color:var(--text-3);font-size:16px;padding:4px 0 4px 4px;transition:transform .2s">▾</span>
         </div>
-        <div id="splitwise-balances-body" style="padding:12px var(--px)">
+        <div id="splitwise-balances-summary" style="padding:0 var(--px)"></div>
+        <div id="splitwise-balances-body" style="padding:0 var(--px) 12px">
           <p style="font-size:13px;color:var(--text-3)">Loading…</p>
         </div>
       </div>
