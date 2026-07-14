@@ -65,32 +65,33 @@ const KEYWORD_MAP = {
 };
 
 const SW_CATEGORY_MAP = {
-  'Food and drink':       'Food & Dining',
-  'Groceries':            'Food & Dining',
-  'Restaurants':          'Food & Dining',
-  'Dining out':           'Food & Dining',
-  'Transportation':       'Transport',
-  'Gas/fuel':             'Transport',
-  'Parking':              'Transport',
-  'Taxi':                 'Transport',
-  'Public transit':       'Transport',
-  'Entertainment':        'Entertainment',
-  'Games':                'Entertainment',
-  'Movies':               'Entertainment',
-  'Music':                'Entertainment',
-  'Sports':               'Entertainment',
-  'Home':                 'Bills & Utilities',
-  'Rent':                 'Bills & Utilities',
-  'Utilities':            'Bills & Utilities',
-  'Household supplies':   'Bills & Utilities',
-  'Furniture':            'Bills & Utilities',
-  'Electronics':          'Shopping',
-  'Clothing':             'Shopping',
-  'Life & Personal':      'Shopping',
-  'Healthcare':           'Health',
-  'Fitness':              'Health',
-  'General':              'Other',
-  'Uncategorized':        'Other',
+  'Food and drink':     ['Food & Dining', ''],
+  'Groceries':          ['Food & Dining', 'Groceries'],
+  'Restaurants':        ['Food & Dining', 'Restaurants'],
+  'Dining out':         ['Food & Dining', 'Restaurants'],
+  'Alcohol, bars':      ['Food & Dining', 'Restaurants'],
+  'Transportation':     ['Transport', ''],
+  'Gas/fuel':           ['Transport', 'Petrol'],
+  'Parking':            ['Transport', ''],
+  'Taxi':               ['Transport', 'Auto / Cab'],
+  'Public transit':     ['Transport', 'Metro / Bus'],
+  'Entertainment':      ['Entertainment', ''],
+  'Games':              ['Entertainment', ''],
+  'Movies':             ['Entertainment', 'Movies'],
+  'Music':              ['Entertainment', 'OTT / Streaming'],
+  'Sports':             ['Entertainment', ''],
+  'Home':               ['Bills & Utilities', ''],
+  'Rent':               ['Bills & Utilities', 'Rent'],
+  'Utilities':          ['Bills & Utilities', 'Electricity'],
+  'Household supplies': ['Bills & Utilities', ''],
+  'Furniture':          ['Shopping', ''],
+  'Electronics':        ['Shopping', 'Electronics'],
+  'Clothing':           ['Shopping', 'Clothes'],
+  'Life & Personal':    ['Shopping', ''],
+  'Healthcare':         ['Health', 'Medicines'],
+  'Fitness':            ['Health', 'Gym'],
+  'General':            ['Other', ''],
+  'Uncategorized':      ['Other', ''],
 };
 
 const BUCKET_ICONS  = ['🎯','🏖️','🏠','🚗','💍','✈️','🎓','💻','📱','🏋️','🛍️','🎮','🎵','👶','🐾','💊'];
@@ -1885,6 +1886,72 @@ function openSplitwiseImport() {
   openOverlay('sw-import-sheet');
 }
 
+async function aiMapSplitwiseCategories(uniqueSwCats) {
+  const [keyRow, modelRow, enabledRow] = await Promise.all([
+    db.settings.get('aiApiKey'),
+    db.settings.get('aiModel'),
+    db.settings.get('aiEnabled'),
+  ]);
+  if (!enabledRow?.value || !keyRow?.value) return null;
+
+  const apiKey = keyRow.value.trim();
+  const model  = modelRow?.value || 'gemini-2.5-flash';
+
+  const localCats = await db.categories.toArray();
+  const localSubs = await db.subcategories.toArray();
+  const subsByCatId = {};
+  for (const s of localSubs) {
+    (subsByCatId[s.categoryId] = subsByCatId[s.categoryId] || []).push(s.name);
+  }
+  const catList = localCats
+    .map(c => `${c.name}: ${(subsByCatId[c.id] || []).join(', ') || '(none)'}`)
+    .join('\n');
+
+  const prompt =
+    `Map each Splitwise expense category to one of the local budget categories below.\n` +
+    `Return ONLY a JSON object — no explanation. Each key is a Splitwise category name,\n` +
+    `each value is [localCategory, localSubcategory] (use "" for subcategory if no good match).\n\n` +
+    `Splitwise categories: ${JSON.stringify(uniqueSwCats)}\n\n` +
+    `Local categories and their subcategories:\n${catList}`;
+
+  try {
+    let text;
+    if (model.startsWith('gemini')) {
+      const res  = await fetch(GEMINI_URL(apiKey, model), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 600, temperature: 0 },
+        }),
+      });
+      const data = await res.json();
+      text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    } else {
+      const res  = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model, max_tokens: 600,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const data = await res.json();
+      text = data.content?.find(b => b.type === 'text')?.text || '{}';
+    }
+    const result = parseAIJson(text);
+    return typeof result === 'object' && !Array.isArray(result) ? result : null;
+  } catch (err) {
+    console.warn('[Splitwise] AI category mapping failed:', err.message);
+    return null;
+  }
+}
+
 async function fetchSplitwiseExpenses() {
   const from     = document.getElementById('sw-import-from').value;
   const to       = document.getElementById('sw-import-to').value;
@@ -1901,8 +1968,9 @@ async function fetchSplitwiseExpenses() {
 
     const data     = await splitwiseFetch(`/get_expenses?dated_after=${from}T00:00:00Z&dated_before=${to}T23:59:59Z&limit=200`);
     const expenses = data.expenses || [];
-    const txns     = [];
 
+    // Collect eligible expenses first so we can batch-map categories
+    const eligible = [];
     for (const exp of expenses) {
       if (exp.deleted_at) continue;
       if (exp.payment)    continue;
@@ -1910,22 +1978,32 @@ async function fetchSplitwiseExpenses() {
       const userEntry = exp.users?.find(u => u.user_id === userId || u.user?.id === userId);
       const owed      = parseFloat(userEntry?.owed_share || 0);
       if (owed <= 0) continue;
-      const catName = SW_CATEGORY_MAP[exp.category?.name] || 'Other';
-      txns.push({
-        type: 'expense', amount: owed,
-        categoryName: catName, subcategoryName: '',
-        merchant: exp.description || '',
-        date: (exp.date || '').split('T')[0] || new Date().toISOString().split('T')[0],
-        note: '', splitwiseId: exp.id,
-      });
+      eligible.push({ exp, owed });
     }
 
-    if (txns.length === 0) {
+    if (eligible.length === 0) {
       statusEl.textContent = expenses.length > 0
         ? `${expenses.length} expense(s) found — all already imported.`
         : 'No expenses found in this period.';
       return;
     }
+
+    // Batch-map categories via AI (one call for the whole import)
+    const uniqueSwCats = [...new Set(eligible.map(({ exp }) => exp.category?.name).filter(Boolean))];
+    statusEl.textContent = 'Mapping categories…';
+    const aiMap = await aiMapSplitwiseCategories(uniqueSwCats);
+
+    const txns = eligible.map(({ exp, owed }) => {
+      const swCat = exp.category?.name || '';
+      const [catName, subName] = aiMap?.[swCat] ?? SW_CATEGORY_MAP[swCat] ?? ['Other', ''];
+      return {
+        type: 'expense', amount: owed,
+        categoryName: catName || 'Other', subcategoryName: subName || '',
+        merchant: exp.description || '',
+        date: (exp.date || '').split('T')[0] || new Date().toISOString().split('T')[0],
+        note: '', splitwiseId: exp.id,
+      };
+    });
 
     closeOverlay('sw-import-sheet');
     state.pendingMultiTxns = txns;
