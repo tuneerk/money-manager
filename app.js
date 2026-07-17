@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.47';
+const APP_VERSION = 'v1.48';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -176,6 +176,10 @@ const state = {
 
   splitwiseCollapsed: false,
   txnSearchQuery:     '',
+
+  swReady:        false,
+  swSplitEnabled: false,
+  swSplitIds:     new Set(),
 };
 
 let _accountMap = new Map();
@@ -943,6 +947,21 @@ async function openAddSheet(type = 'expense', prefill = {}) {
   document.getElementById('delete-txn-btn').style.display   = 'none';
   document.getElementById('save-txn-btn').textContent       = 'Save';
 
+  // Initialise Splitwise split row
+  state.swSplitEnabled = false;
+  state.swSplitIds     = new Set();
+  const [swEnRow, swUrlRow2] = await Promise.all([
+    db.settings.get('splitwiseEnabled'),
+    db.settings.get('splitwiseProxyUrl'),
+  ]);
+  state.swReady = !!(swEnRow?.value && swUrlRow2?.value?.trim());
+  const swRow    = document.getElementById('txn-sw-row');
+  const swToggle = document.getElementById('txn-sw-toggle');
+  const swPanel  = document.getElementById('txn-sw-panel');
+  swToggle.classList.remove('on');
+  swPanel.style.display = 'none';
+  swRow.style.display   = (state.swReady && type === 'expense') ? '' : 'none';
+
   openOverlay('add-sheet');
 }
 
@@ -965,6 +984,7 @@ async function openEditSheet(id) {
   document.getElementById('add-sheet-title').textContent  = 'Edit Transaction';
   document.getElementById('delete-txn-btn').style.display = '';
   document.getElementById('save-txn-btn').textContent     = 'Update';
+  document.getElementById('txn-sw-row').style.display     = 'none';
 }
 
 async function deleteEditingTxn() {
@@ -979,6 +999,16 @@ function setTxnType(type) {
   ['expense','income','transfer'].forEach(t => {
     document.getElementById(`txn-type-${t}`).classList.toggle('active', t === type);
   });
+  // Show Splitwise split only for expenses when SW is configured
+  const swRow = document.getElementById('txn-sw-row');
+  if (swRow) swRow.style.display = (state.swReady && type === 'expense') ? '' : 'none';
+  if (type !== 'expense' && state.swSplitEnabled) {
+    state.swSplitEnabled = false;
+    const swToggle = document.getElementById('txn-sw-toggle');
+    const swPanel  = document.getElementById('txn-sw-panel');
+    if (swToggle) swToggle.classList.remove('on');
+    if (swPanel)  swPanel.style.display = 'none';
+  }
   if (type !== 'transfer') {
     loadCategoryDropdown();
   } else {
@@ -1191,7 +1221,19 @@ async function saveTransaction() {
 
   closeOverlay('add-sheet');
   await refreshTxnList();
-  showToast(`${state.currentType === 'income' ? 'Income' : 'Expense'} saved`, true);
+
+  if (state.swSplitEnabled && state.swSplitIds.size > 0 && state.currentType === 'expense') {
+    try {
+      const desc = fields.merchant || fields.note || 'Expense';
+      await createSplitwiseExpense(amountRaw, desc, fields.date);
+      const n = state.swSplitIds.size;
+      showToast(`Expense saved + split with ${n} friend${n > 1 ? 's' : ''} on Splitwise`, true);
+    } catch (err) {
+      showToast(`Saved locally — Splitwise failed: ${err.message}`);
+    }
+  } else {
+    showToast(`${state.currentType === 'income' ? 'Income' : 'Expense'} saved`, true);
+  }
 }
 
 async function deleteTxnPrompt(id) {
@@ -2103,6 +2145,85 @@ async function saveTransfer() {
 }
 
 // ─── Splitwise ───────────────────────────────────────────────────────────────
+
+function currencyCode() {
+  const map = { '₹': 'INR', '$': 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY', '₩': 'KRW' };
+  return map[state.currency] || 'INR';
+}
+
+function toggleSwSplit() {
+  state.swSplitEnabled = !state.swSplitEnabled;
+  document.getElementById('txn-sw-toggle').classList.toggle('on', state.swSplitEnabled);
+  document.getElementById('txn-sw-panel').style.display = state.swSplitEnabled ? '' : 'none';
+  if (state.swSplitEnabled) renderSwFriendList();
+}
+
+function renderSwFriendList() {
+  const friends   = state.splitwiseFriends || [];
+  const container = document.getElementById('txn-sw-friends');
+  if (!friends.length) {
+    container.innerHTML = '<span style="font-size:13px;color:var(--text-3)">No friends found — open Accounts → Splitwise and sync first</span>';
+    document.getElementById('txn-sw-preview').textContent = '';
+    return;
+  }
+  container.innerHTML = friends.map(f => {
+    const name = [f.first_name, f.last_name].filter(Boolean).join(' ') || `User ${f.id}`;
+    const sel  = state.swSplitIds.has(f.id);
+    return `<button class="sw-friend-chip${sel ? ' selected' : ''}" onclick="toggleSwFriend(${f.id})">${_esc(name)}</button>`;
+  }).join('');
+  updateSwPreview();
+}
+
+function toggleSwFriend(id) {
+  if (state.swSplitIds.has(id)) state.swSplitIds.delete(id);
+  else state.swSplitIds.add(id);
+  renderSwFriendList();
+}
+
+function updateSwPreview() {
+  const el     = document.getElementById('txn-sw-preview');
+  const n      = state.swSplitIds.size;
+  if (!n) { el.textContent = 'Select at least one friend to split with'; return; }
+  const amount = parseFloat(document.getElementById('txn-amount').value) || 0;
+  const each   = amount > 0 ? fmtDec(amount / (n + 1)) : '—';
+  el.textContent = `Equal split: ${state.currency}${each} each (${n + 1} people)`;
+}
+
+async function createSplitwiseExpense(amount, description, date) {
+  const userIdRow = await db.settings.get('splitwiseUserId');
+  if (!userIdRow?.value) throw new Error('user ID unknown — test connection in Settings → Splitwise');
+
+  const myId      = userIdRow.value;
+  const friendIds = [...state.swSplitIds];
+  const total     = friendIds.length + 1;
+
+  // Floor each friend's share to 2 dp; give rounding remainder to current user
+  const friendShare  = Math.floor(amount / total * 100) / 100;
+  const myShare      = parseFloat((amount - friendShare * friendIds.length).toFixed(2));
+
+  const params = new URLSearchParams();
+  params.set('cost',          amount.toFixed(2));
+  params.set('description',   description || 'Expense');
+  params.set('date',          date + 'T00:00:00Z');
+  params.set('currency_code', currencyCode());
+
+  params.set('users__0__user_id',    String(myId));
+  params.set('users__0__paid_for',   amount.toFixed(2));
+  params.set('users__0__owed_share', myShare.toFixed(2));
+
+  for (let i = 0; i < friendIds.length; i++) {
+    params.set(`users__${i + 1}__user_id`,    String(friendIds[i]));
+    params.set(`users__${i + 1}__paid_for`,   '0.00');
+    params.set(`users__${i + 1}__owed_share`, friendShare.toFixed(2));
+  }
+
+  return splitwiseFetch('/create_expense', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    params.toString(),
+  });
+}
+
 async function splitwiseFetch(path, options = {}) {
   const [urlRow, keyRow] = await Promise.all([
     db.settings.get('splitwiseProxyUrl'),
