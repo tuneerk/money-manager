@@ -436,6 +436,132 @@
     #toast { position: fixed; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 72px); left: 50%; transform: translateX(-50%) translateY(16px); opacity: 0; visibility: hidden; background: var(--surface2); color: var(--text); border: 1px solid var(--border); padding: 10px 18px; border-radius: 24px; font-size: 14px; z-index: 300; display: flex; align-items: center; gap: 12px; white-space: nowrap; box-shadow: 0 4px 20px rgba(0,0,0,.4); transition: transform .25s, opacity .25s, visibility 0s .25s; pointer-events: none; cursor: pointer; }
     #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; transition: transform .25s, opacity .25s, visibility 0s; pointer-events: auto; }
     #toast-undo { background: rgba(255,82,82,.2); color: var(--accent); border: none; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; display: none; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       RESPONSIVE LAYOUT
+       640px  → wider column (tablet / large phone)
+       1024px → sidebar navigation (iPad landscape / iPad Pro)
+    ═══════════════════════════════════════════════════════════════ */
+
+    /* ── 640 px+: wider column, bottom nav stays ─────────────────── */
+    @media (min-width: 640px) {
+      :root { --px: 22px; }
+
+      #app  { max-width: 700px; }
+      .sheet { max-width: 700px; }
+
+      /* keep FAB inside the content column */
+      #fab-container { right: max(20px, calc(50vw - 330px)); }
+
+      .cal-cell  { min-height: 72px; }
+      .cal-inc, .cal-exp { font-size: 9px; }
+
+      /* 3-column category picker on wider screens */
+      .autocat-grid { grid-template-columns: repeat(3, 1fr); }
+
+      .settings-row input, .settings-row select { max-width: 200px; }
+    }
+
+    /* ── 1024 px+: sidebar navigation ───────────────────────────── */
+    @media (min-width: 1024px) {
+      :root { --px: 26px; }
+
+      /* App becomes a row: [sidebar | content] */
+      #app {
+        max-width: 100%;
+        flex-direction: row;
+      }
+
+      /* Sidebar nav */
+      #bottom-nav {
+        order: -1;
+        flex-direction: column;
+        width: 210px;
+        min-width: 210px;
+        flex-shrink: 0;
+        height: 100%;
+        border-top: none;
+        border-right: 1px solid var(--border);
+        padding: max(env(safe-area-inset-top, 0px), 24px) 0 env(safe-area-inset-bottom, 0px);
+        justify-content: flex-start;
+        align-items: stretch;
+        gap: 2px;
+        background: var(--surface);
+      }
+
+      /* Nav buttons as horizontal rows in sidebar */
+      .nav-btn {
+        flex-direction: row;
+        justify-content: flex-start;
+        font-size: 14px;
+        font-weight: 500;
+        padding: 13px 16px;
+        gap: 12px;
+        border-radius: 10px;
+        margin: 0 8px;
+        text-align: left;
+        min-height: 46px;
+      }
+      .nav-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+      /* Content area fills remaining space */
+      #screens { flex: 1; overflow: hidden; }
+
+      /* Screens: no huge top padding (sidebar has its own top space) */
+      .screen {
+        padding-top: max(env(safe-area-inset-top, 0px), 16px);
+        padding-bottom: 40px;
+      }
+
+      /* Overlays appear over content area, not sidebar */
+      .overlay-bg { padding-left: 210px; }
+
+      /* Full-screen sheets (category detail) also offset */
+      .overlay-fullscreen {
+        padding-left: 210px;
+        padding-top: max(env(safe-area-inset-top, 0px), 0px);
+      }
+      .overlay-fullscreen .sheet.sheet-page {
+        border-radius: 0;
+        height: 100%;
+        max-height: 100%;
+      }
+      .cd-body { height: calc(100vh - 70px); }
+
+      /* FAB: right side of content area */
+      #fab-container {
+        right: 28px;
+        bottom: 28px;
+      }
+
+      /* Toast: centered in content area */
+      #toast {
+        left: calc(210px + (100vw - 210px) / 2);
+      }
+
+      /* Calendar: taller cells */
+      .cal-cell  { min-height: 88px; }
+      .cal-inc, .cal-exp { font-size: 10px; }
+
+      /* Stats: cap pie chart width */
+      #pie-svg { max-width: 420px; margin: 0 auto; display: block; }
+
+      /* Settings: full-width inputs make sense on wide screens */
+      .settings-row input[type="password"],
+      .settings-row input[type="text"],
+      .settings-row input[type="url"] { max-width: 320px; }
+
+      /* Transaction list: slightly wider category column */
+      .txn-cat-block { width: 90px; }
+    }
+
+    /* ── Small phones (< 360 px): tighten spacing ────────────────── */
+    @media (max-width: 359px) {
+      :root { --px: 12px; }
+      .txn-cat-block { width: 58px; }
+      .txn-desc { font-size: 13px; }
+      .nav-btn  { font-size: 9px; }
+    }
   </style>
 </head>
 <body>

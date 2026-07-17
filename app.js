@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.46';
+const APP_VERSION = 'v1.47';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -2635,7 +2635,12 @@ async function recategorizeUncategorized() {
 
   const resolved = uncategorized.filter(t => t.categoryId);
   if (!resolved.length) {
-    showToast('No categories resolved — add an AI API key in Settings for smarter matching');
+    const [keyRow, enabledRow] = await Promise.all([db.settings.get('aiApiKey'), db.settings.get('aiEnabled')]);
+    const hasKey     = !!(keyRow?.value?.trim());
+    const aiEnabled  = enabledRow?.value ?? true;
+    if (!hasKey)        showToast('No AI API key set — go to Settings → AI to add one');
+    else if (!aiEnabled) showToast('AI is disabled in Settings — enable it and try again');
+    else                 showToast('AI couldn\'t match any merchants — try categorising manually');
     return;
   }
 
