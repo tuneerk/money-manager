@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.49';
+const APP_VERSION = 'v1.50';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -183,8 +183,10 @@ const state = {
   swSplitMode:      'friends',  // 'friends' | 'group'
   swSelectedGroup:   null,
   swMyId:            0,
-  splitwiseAllFriends: null,    // [{id, name}] — all friends, not just those with balances
-  splitwiseGroups:     null,    // [{id, name, members:[{id,name}]}]
+  swShowAllGroups:   false,
+  swShowAllFriends:  false,
+  splitwiseAllFriends: null,    // [{id, name, updated_at}] — all friends sorted by recency
+  splitwiseGroups:     null,    // [{id, name, updated_at, members:[{id,name}]}] sorted by recency
 };
 
 let _accountMap = new Map();
@@ -960,6 +962,8 @@ async function openAddSheet(type = 'expense', prefill = {}) {
   state.swSplitIds      = new Set();
   state.swSplitMode     = 'friends';
   state.swSelectedGroup = null;
+  state.swShowAllGroups  = false;
+  state.swShowAllFriends = false;
   const [swEnRow, swUrlRow2, myIdRow, allFrRow, grpRow] = await Promise.all([
     db.settings.get('splitwiseEnabled'),
     db.settings.get('splitwiseProxyUrl'),
@@ -971,6 +975,8 @@ async function openAddSheet(type = 'expense', prefill = {}) {
   state.swMyId  = myIdRow?.value || 0;
   if (allFrRow?.value) { try { state.splitwiseAllFriends = JSON.parse(allFrRow.value); } catch (_) {} }
   if (grpRow?.value)   { try { state.splitwiseGroups     = JSON.parse(grpRow.value);   } catch (_) {} }
+  // Default to group mode when groups are available
+  if ((state.splitwiseGroups || []).length > 0) state.swSplitMode = 'group';
   const swRow    = document.getElementById('txn-sw-row');
   const swToggle = document.getElementById('txn-sw-toggle');
   const swPanel  = document.getElementById('txn-sw-panel');
@@ -2180,8 +2186,8 @@ function initSwPanel() {
   if (hasGroups) {
     bar.style.display = 'flex';
     bar.innerHTML =
-      `<button class="sw-mode-btn${state.swSplitMode === 'friends' ? ' active' : ''}" onclick="setSwMode('friends')">Friends</button>` +
-      `<button class="sw-mode-btn${state.swSplitMode === 'group'   ? ' active' : ''}" onclick="setSwMode('group')">Group</button>`;
+      `<button class="sw-mode-btn${state.swSplitMode === 'group'   ? ' active' : ''}" onclick="setSwMode('group')">Group</button>` +
+      `<button class="sw-mode-btn${state.swSplitMode === 'friends' ? ' active' : ''}" onclick="setSwMode('friends')">Friends</button>`;
   } else {
     bar.style.display = 'none';
   }
@@ -2189,10 +2195,18 @@ function initSwPanel() {
 }
 
 function setSwMode(mode) {
-  state.swSplitMode    = mode;
+  state.swSplitMode     = mode;
   state.swSelectedGroup = null;
-  state.swSplitIds     = new Set();
+  state.swSplitIds      = new Set();
+  state.swShowAllGroups  = false;
+  state.swShowAllFriends = false;
   initSwPanel();
+}
+
+function swShowMore(type) {
+  if (type === 'groups')  state.swShowAllGroups  = true;
+  if (type === 'friends') state.swShowAllFriends = true;
+  renderSwSplitBody();
 }
 
 function renderSwSplitBody() {
@@ -2202,19 +2216,27 @@ function renderSwSplitBody() {
   updateSwPreview();
 }
 
+const SW_LIST_LIMIT = 8;
+
 function _renderSwFriendsView(el) {
   const friends = state.splitwiseAllFriends || [];
   if (!friends.length) {
     el.innerHTML = '<span style="font-size:13px;color:var(--text-3)">No friends found — open Accounts → Splitwise and sync first</span>';
     return;
   }
-  const chips = friends.map(f => {
+  const shown   = state.swShowAllFriends ? friends : friends.slice(0, SW_LIST_LIMIT);
+  const overflow = friends.length - shown.length;
+  const chips = shown.map(f => {
     const sel = state.swSplitIds.has(f.id);
     return `<button class="sw-friend-chip${sel ? ' selected' : ''}" onclick="toggleSwFriend(${f.id})">${_esc(f.name)}</button>`;
   }).join('');
+  const moreBtn = overflow > 0
+    ? `<button onclick="swShowMore('friends')" style="font-size:13px;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;width:100%;text-align:left;margin-top:4px">Show ${overflow} more…</button>`
+    : '';
   el.innerHTML =
     `<div style="font-size:12px;color:var(--text-3);margin-bottom:8px">Split with</div>` +
-    `<div style="display:flex;flex-wrap:wrap;gap:8px">${chips}</div>`;
+    `<div style="display:flex;flex-wrap:wrap;gap:8px">${chips}</div>` +
+    moreBtn;
 }
 
 function _renderSwGroupsView(el) {
@@ -2223,14 +2245,20 @@ function _renderSwGroupsView(el) {
     el.innerHTML = '<span style="font-size:13px;color:var(--text-3)">No groups found — sync Splitwise in Accounts first</span>';
     return;
   }
-  const sel = state.swSelectedGroup;
-  const groupChips = groups.map(g => {
+  const sel     = state.swSelectedGroup;
+  const shown   = state.swShowAllGroups ? groups : groups.slice(0, SW_LIST_LIMIT);
+  const overflow = groups.length - shown.length;
+  const groupChips = shown.map(g => {
     const active = sel?.id === g.id;
     return `<button class="sw-friend-chip${active ? ' selected' : ''}" onclick="selectSwGroup(${g.id})">${_esc(g.name)}</button>`;
   }).join('');
+  const moreBtn = overflow > 0 && !sel
+    ? `<button onclick="swShowMore('groups')" style="font-size:13px;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;width:100%;text-align:left;margin-top:4px">Show ${overflow} more…</button>`
+    : '';
   let html =
     `<div style="font-size:12px;color:var(--text-3);margin-bottom:8px">Select group</div>` +
-    `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:${sel ? '14px' : '0'}">${groupChips}</div>`;
+    `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:${sel ? '14px' : '4px'}">${groupChips}</div>` +
+    moreBtn;
   if (sel) {
     const members = (sel.members || []).filter(m => m.id !== state.swMyId);
     const memberChips = members.map(m => {
@@ -2390,10 +2418,14 @@ async function refreshSplitwiseBalances(forceRefresh = false) {
       friendsData.push({ name: `${f.first_name} ${f.last_name || ''}`.trim(), amount });
     }
     // Save full friend list (all friends, with IDs) for the split-expense picker
-    const allFriendsData = allFr.map(f => ({
-      id:   f.id,
-      name: `${f.first_name} ${f.last_name || ''}`.trim(),
-    }));
+    // Sort by updated_at so the most recently active friends appear first
+    const allFriendsData = allFr
+      .map(f => ({
+        id:         f.id,
+        name:       `${f.first_name} ${f.last_name || ''}`.trim(),
+        updated_at: f.updated_at || null,
+      }))
+      .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
     state.splitwiseAllFriends = allFriendsData;
     const fetchedAt = new Date().toISOString();
     await Promise.all([
@@ -2447,13 +2479,15 @@ async function refreshSplitwiseGroups() {
     const groups = (data.groups || [])
       .filter(g => g.id !== 0)  // id 0 = "Non-group expenses" virtual group
       .map(g => ({
-        id:      g.id,
-        name:    g.name,
-        members: (g.members || []).map(m => ({
+        id:         g.id,
+        name:       g.name,
+        updated_at: g.updated_at || null,
+        members:    (g.members || []).map(m => ({
           id:   m.id,
           name: `${m.first_name} ${m.last_name || ''}`.trim(),
         })),
-      }));
+      }))
+      .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
     await db.settings.put({ key: 'splitwiseGroupsCache', value: JSON.stringify(groups) });
     state.splitwiseGroups = groups;
   } catch (err) {
