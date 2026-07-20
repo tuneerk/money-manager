@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.50';
+const APP_VERSION = 'v1.51';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -2209,6 +2209,12 @@ function swShowMore(type) {
   renderSwSplitBody();
 }
 
+function swShowLess(type) {
+  if (type === 'groups')  state.swShowAllGroups  = false;
+  if (type === 'friends') state.swShowAllFriends = false;
+  renderSwSplitBody();
+}
+
 function renderSwSplitBody() {
   const el = document.getElementById('sw-split-body');
   if (state.swSplitMode === 'group') _renderSwGroupsView(el);
@@ -2224,19 +2230,22 @@ function _renderSwFriendsView(el) {
     el.innerHTML = '<span style="font-size:13px;color:var(--text-3)">No friends found — open Accounts → Splitwise and sync first</span>';
     return;
   }
-  const shown   = state.swShowAllFriends ? friends : friends.slice(0, SW_LIST_LIMIT);
+  const expanded = state.swShowAllFriends;
+  const shown    = expanded ? friends : friends.slice(0, SW_LIST_LIMIT);
   const overflow = friends.length - shown.length;
   const chips = shown.map(f => {
     const sel = state.swSplitIds.has(f.id);
     return `<button class="sw-friend-chip${sel ? ' selected' : ''}" onclick="toggleSwFriend(${f.id})">${_esc(f.name)}</button>`;
   }).join('');
-  const moreBtn = overflow > 0
+  const toggleBtn = overflow > 0
     ? `<button onclick="swShowMore('friends')" style="font-size:13px;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;width:100%;text-align:left;margin-top:4px">Show ${overflow} more…</button>`
-    : '';
+    : expanded && friends.length > SW_LIST_LIMIT
+      ? `<button onclick="swShowLess('friends')" style="font-size:13px;color:var(--text-3);background:none;border:none;cursor:pointer;padding:4px 0;width:100%;text-align:left;margin-top:4px">Show less</button>`
+      : '';
   el.innerHTML =
     `<div style="font-size:12px;color:var(--text-3);margin-bottom:8px">Split with</div>` +
     `<div style="display:flex;flex-wrap:wrap;gap:8px">${chips}</div>` +
-    moreBtn;
+    toggleBtn;
 }
 
 function _renderSwGroupsView(el) {
@@ -2245,20 +2254,25 @@ function _renderSwGroupsView(el) {
     el.innerHTML = '<span style="font-size:13px;color:var(--text-3)">No groups found — sync Splitwise in Accounts first</span>';
     return;
   }
-  const sel     = state.swSelectedGroup;
-  const shown   = state.swShowAllGroups ? groups : groups.slice(0, SW_LIST_LIMIT);
+  const sel      = state.swSelectedGroup;
+  const expanded = state.swShowAllGroups;
+  const shown    = expanded ? groups : groups.slice(0, SW_LIST_LIMIT);
   const overflow = groups.length - shown.length;
   const groupChips = shown.map(g => {
     const active = sel?.id === g.id;
     return `<button class="sw-friend-chip${active ? ' selected' : ''}" onclick="selectSwGroup(${g.id})">${_esc(g.name)}</button>`;
   }).join('');
-  const moreBtn = overflow > 0 && !sel
-    ? `<button onclick="swShowMore('groups')" style="font-size:13px;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;width:100%;text-align:left;margin-top:4px">Show ${overflow} more…</button>`
+  const toggleBtn = !sel
+    ? overflow > 0
+      ? `<button onclick="swShowMore('groups')" style="font-size:13px;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;width:100%;text-align:left;margin-top:4px">Show ${overflow} more…</button>`
+      : expanded && groups.length > SW_LIST_LIMIT
+        ? `<button onclick="swShowLess('groups')" style="font-size:13px;color:var(--text-3);background:none;border:none;cursor:pointer;padding:4px 0;width:100%;text-align:left;margin-top:4px">Show less</button>`
+        : ''
     : '';
   let html =
     `<div style="font-size:12px;color:var(--text-3);margin-bottom:8px">Select group</div>` +
     `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:${sel ? '14px' : '4px'}">${groupChips}</div>` +
-    moreBtn;
+    toggleBtn;
   if (sel) {
     const members = (sel.members || []).filter(m => m.id !== state.swMyId);
     const memberChips = members.map(m => {
@@ -2409,6 +2423,7 @@ async function refreshSplitwiseBalances(forceRefresh = false) {
     const friends = allFr.filter(f => f.balance?.length > 0);
     let totalOwed = 0, totalOwe = 0;
     const friendsData = [];
+    const balanceById = new Map(); // id → absolute balance amount (for recency sort)
     for (const f of friends) {
       const bal    = f.balance.find(b => b.currency_code === 'INR') || f.balance[0];
       const amount = parseFloat(bal?.amount || 0);
@@ -2416,16 +2431,24 @@ async function refreshSplitwiseBalances(forceRefresh = false) {
       if (amount > 0) totalOwed += amount;
       else            totalOwe  += Math.abs(amount);
       friendsData.push({ name: `${f.first_name} ${f.last_name || ''}`.trim(), amount });
+      balanceById.set(f.id, Math.abs(amount));
     }
-    // Save full friend list (all friends, with IDs) for the split-expense picker
-    // Sort by updated_at so the most recently active friends appear first
+    // Save full friend list sorted by recency:
+    //   1. Friends with active balances first (highest |balance| = most active)
+    //   2. Then settled friends sorted by updated_at descending
     const allFriendsData = allFr
       .map(f => ({
         id:         f.id,
         name:       `${f.first_name} ${f.last_name || ''}`.trim(),
         updated_at: f.updated_at || null,
+        _bal:       balanceById.get(f.id) || 0,
       }))
-      .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+      .sort((a, b) => {
+        if ((a._bal > 0) !== (b._bal > 0)) return b._bal > 0 ? 1 : -1;
+        if (a._bal > 0 && b._bal > 0) return b._bal - a._bal;
+        return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
+      })
+      .map(({ _bal, ...f }) => f);
     state.splitwiseAllFriends = allFriendsData;
     const fetchedAt = new Date().toISOString();
     await Promise.all([
