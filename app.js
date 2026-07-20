@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.48';
+const APP_VERSION = 'v1.49';
 
 const KEYWORD_MAP = {
   swiggy:       ['Food & Dining', 'Swiggy / Zomato'],
@@ -177,9 +177,14 @@ const state = {
   splitwiseCollapsed: false,
   txnSearchQuery:     '',
 
-  swReady:        false,
-  swSplitEnabled: false,
-  swSplitIds:     new Set(),
+  swReady:           false,
+  swSplitEnabled:    false,
+  swSplitIds:        new Set(),
+  swSplitMode:      'friends',  // 'friends' | 'group'
+  swSelectedGroup:   null,
+  swMyId:            0,
+  splitwiseAllFriends: null,    // [{id, name}] — all friends, not just those with balances
+  splitwiseGroups:     null,    // [{id, name, members:[{id,name}]}]
 };
 
 let _accountMap = new Map();
@@ -218,7 +223,10 @@ async function init() {
   if (swReady) {
     const lastFetch = swLastFetchRow?.value ? new Date(swLastFetchRow.value) : null;
     const stale = !lastFetch || (Date.now() - lastFetch.getTime() > 12 * 3600 * 1000);
-    if (stale) refreshSplitwiseBalances(true);
+    if (stale) {
+      refreshSplitwiseBalances(true);
+      refreshSplitwiseGroups();
+    }
   }
 }
 
@@ -948,13 +956,21 @@ async function openAddSheet(type = 'expense', prefill = {}) {
   document.getElementById('save-txn-btn').textContent       = 'Save';
 
   // Initialise Splitwise split row
-  state.swSplitEnabled = false;
-  state.swSplitIds     = new Set();
-  const [swEnRow, swUrlRow2] = await Promise.all([
+  state.swSplitEnabled  = false;
+  state.swSplitIds      = new Set();
+  state.swSplitMode     = 'friends';
+  state.swSelectedGroup = null;
+  const [swEnRow, swUrlRow2, myIdRow, allFrRow, grpRow] = await Promise.all([
     db.settings.get('splitwiseEnabled'),
     db.settings.get('splitwiseProxyUrl'),
+    db.settings.get('splitwiseUserId'),
+    db.settings.get('splitwiseAllFriendsCache'),
+    db.settings.get('splitwiseGroupsCache'),
   ]);
   state.swReady = !!(swEnRow?.value && swUrlRow2?.value?.trim());
+  state.swMyId  = myIdRow?.value || 0;
+  if (allFrRow?.value) { try { state.splitwiseAllFriends = JSON.parse(allFrRow.value); } catch (_) {} }
+  if (grpRow?.value)   { try { state.splitwiseGroups     = JSON.parse(grpRow.value);   } catch (_) {} }
   const swRow    = document.getElementById('txn-sw-row');
   const swToggle = document.getElementById('txn-sw-toggle');
   const swPanel  = document.getElementById('txn-sw-panel');
@@ -2155,57 +2171,119 @@ function toggleSwSplit() {
   state.swSplitEnabled = !state.swSplitEnabled;
   document.getElementById('txn-sw-toggle').classList.toggle('on', state.swSplitEnabled);
   document.getElementById('txn-sw-panel').style.display = state.swSplitEnabled ? '' : 'none';
-  if (state.swSplitEnabled) renderSwFriendList();
+  if (state.swSplitEnabled) initSwPanel();
 }
 
-function renderSwFriendList() {
-  const friends   = state.splitwiseFriends || [];
-  const container = document.getElementById('txn-sw-friends');
+function initSwPanel() {
+  const hasGroups = (state.splitwiseGroups || []).length > 0;
+  const bar = document.getElementById('sw-mode-bar');
+  if (hasGroups) {
+    bar.style.display = 'flex';
+    bar.innerHTML =
+      `<button class="sw-mode-btn${state.swSplitMode === 'friends' ? ' active' : ''}" onclick="setSwMode('friends')">Friends</button>` +
+      `<button class="sw-mode-btn${state.swSplitMode === 'group'   ? ' active' : ''}" onclick="setSwMode('group')">Group</button>`;
+  } else {
+    bar.style.display = 'none';
+  }
+  renderSwSplitBody();
+}
+
+function setSwMode(mode) {
+  state.swSplitMode    = mode;
+  state.swSelectedGroup = null;
+  state.swSplitIds     = new Set();
+  initSwPanel();
+}
+
+function renderSwSplitBody() {
+  const el = document.getElementById('sw-split-body');
+  if (state.swSplitMode === 'group') _renderSwGroupsView(el);
+  else                                _renderSwFriendsView(el);
+  updateSwPreview();
+}
+
+function _renderSwFriendsView(el) {
+  const friends = state.splitwiseAllFriends || [];
   if (!friends.length) {
-    container.innerHTML = '<span style="font-size:13px;color:var(--text-3)">No friends found — open Accounts → Splitwise and sync first</span>';
-    document.getElementById('txn-sw-preview').textContent = '';
+    el.innerHTML = '<span style="font-size:13px;color:var(--text-3)">No friends found — open Accounts → Splitwise and sync first</span>';
     return;
   }
-  container.innerHTML = friends.map(f => {
-    const name = [f.first_name, f.last_name].filter(Boolean).join(' ') || `User ${f.id}`;
-    const sel  = state.swSplitIds.has(f.id);
-    return `<button class="sw-friend-chip${sel ? ' selected' : ''}" onclick="toggleSwFriend(${f.id})">${_esc(name)}</button>`;
+  const chips = friends.map(f => {
+    const sel = state.swSplitIds.has(f.id);
+    return `<button class="sw-friend-chip${sel ? ' selected' : ''}" onclick="toggleSwFriend(${f.id})">${_esc(f.name)}</button>`;
   }).join('');
-  updateSwPreview();
+  el.innerHTML =
+    `<div style="font-size:12px;color:var(--text-3);margin-bottom:8px">Split with</div>` +
+    `<div style="display:flex;flex-wrap:wrap;gap:8px">${chips}</div>`;
+}
+
+function _renderSwGroupsView(el) {
+  const groups = state.splitwiseGroups || [];
+  if (!groups.length) {
+    el.innerHTML = '<span style="font-size:13px;color:var(--text-3)">No groups found — sync Splitwise in Accounts first</span>';
+    return;
+  }
+  const sel = state.swSelectedGroup;
+  const groupChips = groups.map(g => {
+    const active = sel?.id === g.id;
+    return `<button class="sw-friend-chip${active ? ' selected' : ''}" onclick="selectSwGroup(${g.id})">${_esc(g.name)}</button>`;
+  }).join('');
+  let html =
+    `<div style="font-size:12px;color:var(--text-3);margin-bottom:8px">Select group</div>` +
+    `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:${sel ? '14px' : '0'}">${groupChips}</div>`;
+  if (sel) {
+    const members = (sel.members || []).filter(m => m.id !== state.swMyId);
+    const memberChips = members.map(m => {
+      const isIn = state.swSplitIds.has(m.id);
+      return `<button class="sw-friend-chip${isIn ? ' selected' : ''}" onclick="toggleSwFriend(${m.id})">${_esc(m.name)}</button>`;
+    }).join('');
+    html +=
+      `<div style="font-size:12px;color:var(--text-3);margin-bottom:8px">Members (tap to exclude)</div>` +
+      `<div style="display:flex;flex-wrap:wrap;gap:8px">${memberChips}</div>`;
+  }
+  el.innerHTML = html;
+}
+
+function selectSwGroup(id) {
+  const group = (state.splitwiseGroups || []).find(g => g.id === id);
+  if (!group) return;
+  state.swSelectedGroup = group;
+  state.swSplitIds = new Set(
+    (group.members || []).filter(m => m.id !== state.swMyId).map(m => m.id)
+  );
+  renderSwSplitBody();
 }
 
 function toggleSwFriend(id) {
   if (state.swSplitIds.has(id)) state.swSplitIds.delete(id);
   else state.swSplitIds.add(id);
-  renderSwFriendList();
+  renderSwSplitBody();
 }
 
 function updateSwPreview() {
-  const el     = document.getElementById('txn-sw-preview');
-  const n      = state.swSplitIds.size;
-  if (!n) { el.textContent = 'Select at least one friend to split with'; return; }
+  const el = document.getElementById('txn-sw-preview');
+  const n  = state.swSplitIds.size;
+  if (!n) { el.textContent = state.swSplitMode === 'group' && !state.swSelectedGroup ? '' : 'Select at least one person to split with'; return; }
   const amount = parseFloat(document.getElementById('txn-amount').value) || 0;
   const each   = amount > 0 ? fmtDec(amount / (n + 1)) : '—';
   el.textContent = `Equal split: ${state.currency}${each} each (${n + 1} people)`;
 }
 
 async function createSplitwiseExpense(amount, description, date) {
-  const userIdRow = await db.settings.get('splitwiseUserId');
-  if (!userIdRow?.value) throw new Error('user ID unknown — test connection in Settings → Splitwise');
+  const myId = state.swMyId;
+  if (!myId) throw new Error('user ID unknown — test connection in Settings → Splitwise');
 
-  const myId      = userIdRow.value;
-  const friendIds = [...state.swSplitIds];
-  const total     = friendIds.length + 1;
-
-  // Floor each friend's share to 2 dp; give rounding remainder to current user
-  const friendShare  = Math.floor(amount / total * 100) / 100;
-  const myShare      = parseFloat((amount - friendShare * friendIds.length).toFixed(2));
+  const friendIds   = [...state.swSplitIds];
+  const total       = friendIds.length + 1;
+  const friendShare = Math.floor(amount / total * 100) / 100;
+  const myShare     = parseFloat((amount - friendShare * friendIds.length).toFixed(2));
 
   const params = new URLSearchParams();
   params.set('cost',          amount.toFixed(2));
   params.set('description',   description || 'Expense');
   params.set('date',          date + 'T00:00:00Z');
   params.set('currency_code', currencyCode());
+  if (state.swSelectedGroup) params.set('group_id', String(state.swSelectedGroup.id));
 
   params.set('users__0__user_id',    String(myId));
   params.set('users__0__paid_for',   amount.toFixed(2));
@@ -2299,7 +2377,8 @@ async function refreshSplitwiseBalances(forceRefresh = false) {
 
   try {
     const data    = await splitwiseFetch('/get_friends');
-    const friends = (data.friends || []).filter(f => f.balance?.length > 0);
+    const allFr   = data.friends || [];
+    const friends = allFr.filter(f => f.balance?.length > 0);
     let totalOwed = 0, totalOwe = 0;
     const friendsData = [];
     for (const f of friends) {
@@ -2310,10 +2389,17 @@ async function refreshSplitwiseBalances(forceRefresh = false) {
       else            totalOwe  += Math.abs(amount);
       friendsData.push({ name: `${f.first_name} ${f.last_name || ''}`.trim(), amount });
     }
+    // Save full friend list (all friends, with IDs) for the split-expense picker
+    const allFriendsData = allFr.map(f => ({
+      id:   f.id,
+      name: `${f.first_name} ${f.last_name || ''}`.trim(),
+    }));
+    state.splitwiseAllFriends = allFriendsData;
     const fetchedAt = new Date().toISOString();
     await Promise.all([
-      db.settings.put({ key: 'splitwiseFriendsCache', value: JSON.stringify({ friends: friendsData, totalOwed, totalOwe, fetchedAt }) }),
-      db.settings.put({ key: 'splitwiseLastFetch', value: fetchedAt }),
+      db.settings.put({ key: 'splitwiseFriendsCache',    value: JSON.stringify({ friends: friendsData, totalOwed, totalOwe, fetchedAt }) }),
+      db.settings.put({ key: 'splitwiseAllFriendsCache', value: JSON.stringify(allFriendsData) }),
+      db.settings.put({ key: 'splitwiseLastFetch',       value: fetchedAt }),
     ]);
     swApplyFriendsData(friendsData, totalOwed, totalOwe);
     const syncEl = document.getElementById('sw-detail-sync-time');
@@ -2351,10 +2437,34 @@ function renderSplitwiseFriendsDetail() {
   }).join('');
 }
 
+async function refreshSplitwiseGroups() {
+  const cacheRow = await db.settings.get('splitwiseGroupsCache');
+  if (cacheRow?.value) {
+    try { state.splitwiseGroups = JSON.parse(cacheRow.value); } catch (_) {}
+  }
+  try {
+    const data   = await splitwiseFetch('/get_groups');
+    const groups = (data.groups || [])
+      .filter(g => g.id !== 0)  // id 0 = "Non-group expenses" virtual group
+      .map(g => ({
+        id:      g.id,
+        name:    g.name,
+        members: (g.members || []).map(m => ({
+          id:   m.id,
+          name: `${m.first_name} ${m.last_name || ''}`.trim(),
+        })),
+      }));
+    await db.settings.put({ key: 'splitwiseGroupsCache', value: JSON.stringify(groups) });
+    state.splitwiseGroups = groups;
+  } catch (err) {
+    console.warn('[Splitwise] groups fetch failed:', err.message);
+  }
+}
+
 async function syncSplitwiseNow() {
   const syncEl = document.getElementById('sw-detail-sync-time');
   if (syncEl) syncEl.textContent = 'syncing…';
-  await refreshSplitwiseBalances(true);
+  await Promise.all([refreshSplitwiseBalances(true), refreshSplitwiseGroups()]);
   // update balance card numbers
   const owed = state.splitwiseTotalOwed;
   const owe  = state.splitwiseTotalOwe;
